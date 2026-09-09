@@ -184,16 +184,28 @@ export async function listSpeedtests(
   db: D1Database,
   ispId: IspId,
   since: string,
-  limit = 100,
+  limit?: number,
 ): Promise<SpeedtestResultRow[]> {
+  if (limit !== undefined) {
+    const result = await db
+      .prepare(
+        `SELECT * FROM speedtest_results
+         WHERE isp_id = ? AND recorded_at >= ?
+         ORDER BY recorded_at DESC
+         LIMIT ?`,
+      )
+      .bind(ispId, since, limit)
+      .all<SpeedtestResultRow>();
+    return result.results ?? [];
+  }
+
   const result = await db
     .prepare(
       `SELECT * FROM speedtest_results
        WHERE isp_id = ? AND recorded_at >= ?
-       ORDER BY recorded_at DESC
-       LIMIT ?`,
+       ORDER BY recorded_at ASC`,
     )
-    .bind(ispId, since, limit)
+    .bind(ispId, since)
     .all<SpeedtestResultRow>();
   return result.results ?? [];
 }
@@ -331,7 +343,8 @@ export async function insertLatencySample(
 
 export interface LatencyBucketRow {
   bucket_at: string;
-  avg_latency_ms: number;
+  min_latency_ms: number;
+  max_latency_ms: number;
   sample_count: number;
 }
 
@@ -368,7 +381,8 @@ export async function listLatencyBuckets(
     .prepare(
       `SELECT
         substr(recorded_at, 1, 13) || ':00:00.000Z' AS bucket_at,
-        ROUND(AVG(https_latency_ms)) AS avg_latency_ms,
+        MIN(https_latency_ms) AS min_latency_ms,
+        MAX(https_latency_ms) AS max_latency_ms,
         COUNT(*) AS sample_count
       FROM latency_samples
       WHERE isp_id = ? AND recorded_at >= ?

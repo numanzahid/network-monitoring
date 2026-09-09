@@ -141,21 +141,45 @@ export function renderLatencyCharts(container, histories) {
       continue;
     }
 
+    const labels = points.map((point) => formatTimeLabel(point.recorded_at));
+    const datasets =
+      history.granularity === "hour"
+        ? [
+            {
+              label: "Low (ms)",
+              data: points.map((point) => point.min_latency_ms),
+              borderColor: "#22c55e",
+              backgroundColor: "rgba(34, 197, 94, 0.08)",
+              tension: 0.2,
+              pointRadius: 2,
+            },
+            {
+              label: "High (ms)",
+              data: points.map((point) => point.max_latency_ms),
+              borderColor: "#ef4444",
+              backgroundColor: "rgba(239, 68, 68, 0.12)",
+              fill: "-1",
+              tension: 0.2,
+              pointRadius: 2,
+            },
+          ]
+        : [
+            {
+              label: "HTTPS latency (ms)",
+              data: points.map((point) => point.latency_ms),
+              borderColor: "#38bdf8",
+              backgroundColor: "rgba(56, 189, 248, 0.15)",
+              fill: true,
+              tension: 0.2,
+              pointRadius: 0,
+            },
+          ];
+
     const chart = new Chart(canvas, {
       type: "line",
       data: {
-        labels: points.map((point) => formatTimeLabel(point.recorded_at)),
-        datasets: [
-          {
-            label: "HTTPS latency (ms)",
-            data: points.map((point) => point.latency_ms),
-            borderColor: "#38bdf8",
-            backgroundColor: "rgba(56, 189, 248, 0.15)",
-            fill: true,
-            tension: 0.2,
-            pointRadius: history.granularity === "sample" ? 0 : 2,
-          },
-        ],
+        labels,
+        datasets,
       },
       options: {
         responsive: true,
@@ -193,7 +217,7 @@ export function renderSpeedtestCharts(container, histories) {
       continue;
     }
 
-    const labels = results.map((result) => result.recorded_at);
+    const labels = results.map((result) => formatTimeLabel(result.recorded_at));
     const download = results.map((result) => result.download_mbps);
     const upload = results.map((result) => result.upload_mbps);
 
@@ -206,13 +230,17 @@ export function renderSpeedtestCharts(container, histories) {
             label: "Download Mbps",
             data: download,
             borderColor: "#38bdf8",
-            tension: 0.2,
+            tension: 0,
+            pointRadius: 4,
+            pointHoverRadius: 5,
           },
           {
             label: "Upload Mbps",
             data: upload,
             borderColor: "#a855f7",
-            tension: 0.2,
+            tension: 0,
+            pointRadius: 4,
+            pointHoverRadius: 5,
           },
         ],
       },

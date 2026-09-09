@@ -101,10 +101,7 @@ export async function handleSpeedtestHistory(
     isp_id: ispId,
     label: getIspLabel(env, ispId),
     days,
-    results: results
-      .slice()
-      .reverse()
-      .map((result) => ({
+    results: results.map((result) => ({
         id: result.id,
         recorded_at: result.recorded_at,
         download_mbps: result.download_mbps,
@@ -154,7 +151,8 @@ export async function handleLatencyHistory(
     granularity: "hour",
     points: buckets.map((bucket) => ({
       recorded_at: bucket.bucket_at,
-      latency_ms: bucket.avg_latency_ms,
+      min_latency_ms: bucket.min_latency_ms,
+      max_latency_ms: bucket.max_latency_ms,
       sample_count: bucket.sample_count,
     })),
   });
