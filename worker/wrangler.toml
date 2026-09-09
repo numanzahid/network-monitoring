@@ -9,7 +9,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "network-monitoring"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "7ba7074c-5615-47ac-8808-3c13b93c0269"
 
 [triggers]
 crons = ["*/5 * * * *"]
