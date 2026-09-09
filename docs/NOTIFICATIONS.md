@@ -28,18 +28,20 @@ Set `NOTIFY_ENABLED = "false"` to disable all notifications.
 
 ## ntfy (default)
 
-Vars:
+Vars in `wrangler.toml`:
 
 - `NTFY_SERVER` (default `https://ntfy.sh`)
-- `NTFY_TOPIC`
 - `NTFY_PRIORITY_DOWN`
 - `NTFY_PRIORITY_UP`
 
-Optional secret:
+Secrets (not in git):
 
-- `NTFY_AUTH_TOKEN`
+- `NTFY_TOPIC` -- use a random unguessable name, e.g. `nm-$(openssl rand -hex 16)`
+- `NTFY_AUTH_TOKEN` -- optional extra lock on the topic
 
-Subscribe with the ntfy mobile app or browser using your topic name.
+Subscribe in the ntfy app to `https://ntfy.sh/<NTFY_TOPIC>`. Do not commit the
+topic name to the repository; anyone who knows it can subscribe or post to it
+on the public ntfy.sh server.
 
 ## Telegram
 

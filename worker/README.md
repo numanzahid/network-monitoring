@@ -37,8 +37,17 @@ Set secrets:
 ```bash
 npx wrangler secret put PROBE_SECRET_ISP1
 npx wrangler secret put PROBE_SECRET_ISP2
+npx wrangler secret put NTFY_TOPIC
 npx wrangler secret put NTFY_AUTH_TOKEN
 ```
+
+Use a random ntfy topic (not committed to git), for example:
+
+```bash
+printf 'nm-%s' "$(openssl rand -hex 16)"
+```
+
+Subscribe in the ntfy app to `https://ntfy.sh/<that-topic>`.
 
 Optional notification secrets:
 
@@ -51,7 +60,7 @@ npx wrangler secret put DISCORD_WEBHOOK_URL
 Update `[vars]` in `wrangler.toml`:
 
 - `STATUS_PAGE_URL`
-- `NTFY_SERVER` and `NTFY_TOPIC`
+- `NTFY_SERVER` (topic is a secret, not in git)
 - `ISP1_LABEL` and `ISP2_LABEL`
 - `NOTIFIER_CHANNELS` (example: `ntfy` or `ntfy,telegram,discord`)
 
@@ -101,6 +110,6 @@ in `src/notify/` behind a shared `Notifier` interface.
 Default configuration uses ntfy:
 
 - `NTFY_SERVER=https://ntfy.sh`
-- `NTFY_TOPIC=network-monitoring-alerts`
+- `NTFY_TOPIC` as a Worker secret (random, unguessable string)
 
-Subscribe on your phone with the ntfy app or visit the topic URL in a browser.
+Subscribe on your phone with the ntfy app using `https://ntfy.sh/<NTFY_TOPIC>`.

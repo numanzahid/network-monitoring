@@ -82,11 +82,11 @@ Add **Secrets** (encrypted):
 |------|---------|
 | `PROBE_SECRET_ISP1` | Must match `PROBE_SECRET` in `isp1/tunnel/.env` |
 | `PROBE_SECRET_ISP2` | Must match `PROBE_SECRET` in `isp2/tunnel/.env` |
-| `NTFY_AUTH_TOKEN` | Optional, if your ntfy topic is protected |
+| `NTFY_TOPIC` | Random topic name, e.g. `nm-` + 32 hex chars (`openssl rand -hex 16`) |
+| `NTFY_AUTH_TOKEN` | Optional, extra protection on the ntfy topic |
 
 Non-secret values are already in `worker/wrangler.toml` under `[vars]`:
 
-- `NTFY_TOPIC`
 - `STATUS_PAGE_URL`
 - `ISP1_LABEL`, `ISP2_LABEL`
 - `NOTIFIER_CHANNELS`
@@ -138,8 +138,8 @@ PROBE_SECRET=<same value as PROBE_SECRET_ISP1 or ISP2 in Cloudflare>
 **Notifications not sent**
 
 - Check `NOTIFY_ENABLED=true` in `wrangler.toml`
-- Check `NTFY_TOPIC` and subscribe to it in the ntfy app
-- Add `NTFY_AUTH_TOKEN` secret if the topic requires auth
+- Subscribe in the ntfy app to the same `NTFY_TOPIC` secret value
+- Add `NTFY_AUTH_TOKEN` secret if you enabled topic auth in ntfy
 
 **Wrangler login not needed**
 
