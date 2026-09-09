@@ -8,7 +8,7 @@ services:
       [
         "sh",
         "-c",
-        "pip install -q -r /probe/requirements.txt && python /probe/probe.py",
+        "apt-get update -qq && apt-get install -y -qq traceroute && pip install -q -r /probe/requirements.txt && python /probe/probe.py",
       ]
     networks:
       isp-monitor-macvlan:

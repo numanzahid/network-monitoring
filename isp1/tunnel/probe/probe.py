@@ -8,13 +8,20 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import socket
+import subprocess
 import sys
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+
 import requests
+
+_CACHED_ISP_FOR_IP: dict[str, dict[str, str | None]] = {}
+_LAST_TRACEROUTE_AT = 0.0
+_LAST_TRACEROUTE_LINES: list[str] | None = None
 
 
 def env(name: str, default: str | None = None) -> str:
@@ -69,6 +76,76 @@ def check_public_ip(url: str, timeout: float) -> str | None:
         return ip if ip else None
     except requests.RequestException:
         return None
+
+
+def lookup_network_identity(public_ipv4: str | None, timeout: float) -> dict[str, str | None]:
+    if not public_ipv4:
+        return {"isp_name": None, "network_asn": None}
+    if public_ipv4 in _CACHED_ISP_FOR_IP:
+        return _CACHED_ISP_FOR_IP[public_ipv4]
+
+    result = {"isp_name": None, "network_asn": None}
+    try:
+        response = requests.get(
+            f"http://ip-api.com/json/{public_ipv4}",
+            params={"fields": "status,isp,org,as"},
+            timeout=timeout,
+            headers={"User-Agent": "network-monitoring-probe/1.0"},
+        )
+        payload = response.json()
+        if response.ok and payload.get("status") == "success":
+            result = {
+                "isp_name": payload.get("isp") or payload.get("org"),
+                "network_asn": payload.get("as"),
+            }
+    except (requests.RequestException, ValueError):
+        pass
+
+    _CACHED_ISP_FOR_IP[public_ipv4] = result
+    return result
+
+
+def run_traceroute(target: str, max_hops: int, timeout: float) -> list[str] | None:
+    if not shutil.which("traceroute"):
+        return None
+    try:
+        completed = subprocess.run(
+            ["traceroute", "-n", "-w", "2", "-q", "1", "-m", str(max_hops), target],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+    if completed.returncode != 0 and not completed.stdout:
+        return None
+
+    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    return lines or None
+
+
+def get_traceroute_lines(
+    target: str,
+    max_hops: int,
+    interval: int,
+    timeout: float,
+) -> list[str] | None:
+    global _LAST_TRACEROUTE_AT, _LAST_TRACEROUTE_LINES
+
+    if interval <= 0:
+        return _LAST_TRACEROUTE_LINES
+
+    now = time.monotonic()
+    if _LAST_TRACEROUTE_LINES is not None and (now - _LAST_TRACEROUTE_AT) < interval:
+        return _LAST_TRACEROUTE_LINES
+
+    lines = run_traceroute(target, max_hops, timeout)
+    if lines:
+        _LAST_TRACEROUTE_AT = now
+        _LAST_TRACEROUTE_LINES = lines
+    return _LAST_TRACEROUTE_LINES
 
 
 def check_internet(url: str, timeout: float) -> bool:
@@ -149,12 +226,23 @@ def build_payload(
     tracker_ip: str,
     api_token: str,
     timeout: float,
+    traceroute_target: str,
+    traceroute_max_hops: int,
+    traceroute_interval: int,
+    traceroute_timeout: float,
 ) -> dict[str, Any]:
     dns_ok = check_dns(dns_host, timeout)
     https_ok, https_latency = check_https(https_url, timeout)
     public_ipv4 = check_public_ip(public_ip_url, timeout)
     internet_ok = check_internet(internet_url, timeout)
     speedtest = fetch_latest_speedtest(tracker_ip, api_token, timeout)
+    identity = lookup_network_identity(public_ipv4, timeout)
+    traceroute = get_traceroute_lines(
+        traceroute_target,
+        traceroute_max_hops,
+        traceroute_interval,
+        traceroute_timeout,
+    )
 
     return {
         "isp_id": isp_id,
@@ -165,6 +253,9 @@ def build_payload(
             "dns": dns_ok,
             "https": {"ok": https_ok, "latency_ms": https_latency},
             "public_ipv4": public_ipv4,
+            "isp_name": identity["isp_name"],
+            "network_asn": identity["network_asn"],
+            "traceroute": traceroute,
         },
         "speedtest": speedtest,
     }
@@ -212,6 +303,10 @@ def run_once() -> None:
     public_ip_url = env("PUBLIC_IP_URL", "http://ipv4.icanhazip.com")
     internet_url = env("INTERNET_CHECK_URL", "https://cloudflare.com/cdn-cgi/trace")
     api_token = os.environ.get("SPEEDTEST_API_TOKEN", "")
+    traceroute_target = os.environ.get("TRACEROUTE_TARGET", "1.1.1.1")
+    traceroute_max_hops = env_int("TRACEROUTE_MAX_HOPS", 8)
+    traceroute_interval = env_int("TRACEROUTE_INTERVAL_SECONDS", 900)
+    traceroute_timeout = float(os.environ.get("TRACEROUTE_TIMEOUT_SECONDS", "45"))
 
     payload = build_payload(
         isp_id=isp_id,
@@ -222,6 +317,10 @@ def run_once() -> None:
         tracker_ip=tracker_ip,
         api_token=api_token,
         timeout=timeout,
+        traceroute_target=traceroute_target,
+        traceroute_max_hops=traceroute_max_hops,
+        traceroute_interval=traceroute_interval,
+        traceroute_timeout=traceroute_timeout,
     )
     post_heartbeat(worker_url, secret, payload, timeout)
 

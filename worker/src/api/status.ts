@@ -27,6 +27,11 @@ async function buildIspSummary(env: Env, status: IspStatusRow) {
     last_seen_at: status.last_seen_at,
     last_success_at: status.last_success_at,
     public_ipv4: status.public_ipv4,
+    isp_name: status.isp_name,
+    network_asn: status.network_asn,
+    traceroute: status.traceroute
+      ? status.traceroute.split("\n").filter(Boolean)
+      : null,
     checks: {
       dns_ok: status.dns_ok === null ? null : status.dns_ok === 1,
       https_ok: status.https_ok === null ? null : status.https_ok === 1,

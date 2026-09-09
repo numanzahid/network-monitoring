@@ -60,6 +60,9 @@ export async function updateIspStatus(
     lastSeenAt: string;
     lastSuccessAt: string | null;
     publicIpv4: string | null;
+    ispName: string | null;
+    networkAsn: string | null;
+    traceroute: string | null;
     dnsOk: boolean | null;
     httpsOk: boolean | null;
     httpsLatencyMs: number | null;
@@ -76,6 +79,9 @@ export async function updateIspStatus(
         last_seen_at = ?,
         last_success_at = ?,
         public_ipv4 = ?,
+        isp_name = ?,
+        network_asn = ?,
+        traceroute = ?,
         dns_ok = ?,
         https_ok = ?,
         https_latency_ms = ?,
@@ -90,6 +96,9 @@ export async function updateIspStatus(
       fields.lastSeenAt,
       fields.lastSuccessAt,
       fields.publicIpv4,
+      fields.ispName,
+      fields.networkAsn,
+      fields.traceroute,
       fields.dnsOk === null ? null : fields.dnsOk ? 1 : 0,
       fields.httpsOk === null ? null : fields.httpsOk ? 1 : 0,
       fields.httpsLatencyMs,

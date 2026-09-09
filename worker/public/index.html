@@ -12,7 +12,12 @@
         <h1>Dual-ISP Network Status</h1>
         <p id="generated-at" class="muted">Loading...</p>
       </div>
-      <div class="header-actions">
+    </header>
+
+    <main>
+      <section id="status-cards" class="card-grid" aria-live="polite"></section>
+
+      <div class="history-toolbar">
         <label class="history-days-label">
           Days
           <select id="history-days">
@@ -24,10 +29,6 @@
         </label>
         <button id="refresh-button" type="button">Refresh</button>
       </div>
-    </header>
-
-    <main>
-      <section id="status-cards" class="card-grid" aria-live="polite"></section>
 
       <section class="panel">
         <div class="panel-header">

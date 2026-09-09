@@ -33,6 +33,9 @@ export interface HeartbeatChecks {
     latency_ms: number | null;
   };
   public_ipv4: string | null;
+  isp_name?: string | null;
+  network_asn?: string | null;
+  traceroute?: string[] | null;
 }
 
 export interface HeartbeatSpeedtest {
@@ -60,6 +63,9 @@ export interface IspStatusRow {
   last_seen_at: string;
   last_success_at: string | null;
   public_ipv4: string | null;
+  isp_name: string | null;
+  network_asn: string | null;
+  traceroute: string | null;
   dns_ok: number | null;
   https_ok: number | null;
   https_latency_ms: number | null;

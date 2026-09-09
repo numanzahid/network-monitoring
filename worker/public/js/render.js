@@ -21,6 +21,39 @@ function formatDuration(seconds) {
   return `${remaining}s`;
 }
 
+function formatProvider(isp) {
+  if (isp.isp_name && isp.network_asn) {
+    return `${isp.isp_name} (${isp.network_asn})`;
+  }
+  if (isp.isp_name) {
+    return isp.isp_name;
+  }
+  if (isp.network_asn) {
+    return isp.network_asn;
+  }
+  return "-";
+}
+
+function renderTraceroute(lines) {
+  if (!lines || !lines.length) {
+    return "";
+  }
+  const text = lines.join("\n");
+  return `
+    <details class="traceroute-block">
+      <summary>Traceroute</summary>
+      <pre class="traceroute-output">${escapeHtml(text)}</pre>
+    </details>
+  `;
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 function formatMbps(value) {
   if (value === null || value === undefined) {
     return "-";
@@ -48,6 +81,8 @@ export function renderStatusCards(container, statusPayload) {
         <dd>${formatDate(isp.last_success_at)}</dd>
         <dt>Public IPv4</dt>
         <dd>${isp.public_ipv4 ?? "-"}</dd>
+        <dt>Network provider</dt>
+        <dd>${formatProvider(isp)}</dd>
         <dt>HTTPS latency</dt>
         <dd>${isp.checks.https_latency_ms ?? "-"} ms</dd>
         <dt>Latest speedtest</dt>
@@ -57,6 +92,7 @@ export function renderStatusCards(container, statusPayload) {
             : "-"
         }</dd>
       </dl>
+      ${renderTraceroute(isp.traceroute)}
     `;
 
     container.appendChild(card);

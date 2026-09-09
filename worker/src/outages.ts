@@ -23,6 +23,13 @@ interface TransitionResult {
   outageId: number | null;
 }
 
+function tracerouteToText(lines: string[] | null | undefined): string | null {
+  if (!lines || lines.length === 0) {
+    return null;
+  }
+  return lines.join("\n");
+}
+
 async function applyStateTransition(
   env: Env,
   ispId: IspId,
@@ -32,6 +39,9 @@ async function applyStateTransition(
   statusFields: {
     lastSeenAt: string;
     publicIpv4: string | null;
+    ispName: string | null;
+    networkAsn: string | null;
+    traceroute: string | null;
     dnsOk: boolean | null;
     httpsOk: boolean | null;
     httpsLatencyMs: number | null;
@@ -79,6 +89,9 @@ async function applyStateTransition(
     lastSeenAt: statusFields.lastSeenAt,
     lastSuccessAt,
     publicIpv4: statusFields.publicIpv4,
+    ispName: statusFields.ispName,
+    networkAsn: statusFields.networkAsn,
+    traceroute: statusFields.traceroute,
     dnsOk: statusFields.dnsOk,
     httpsOk: statusFields.httpsOk,
     httpsLatencyMs: statusFields.httpsLatencyMs,
@@ -145,6 +158,9 @@ export async function processHeartbeat(
   await applyStateTransition(env, ispId, now, healthy, reason, {
     lastSeenAt: now,
     publicIpv4: payload.checks.public_ipv4,
+    ispName: payload.checks.isp_name ?? null,
+    networkAsn: payload.checks.network_asn ?? null,
+    traceroute: tracerouteToText(payload.checks.traceroute),
     dnsOk: payload.checks.dns,
     httpsOk: payload.checks.https.ok,
     httpsLatencyMs: payload.checks.https.latency_ms,
@@ -192,6 +208,9 @@ export async function processMissedHeartbeat(
   await applyStateTransition(env, ispId, now, false, "heartbeat_missing", {
     lastSeenAt: current.last_seen_at,
     publicIpv4: current.public_ipv4,
+    ispName: current.isp_name,
+    networkAsn: current.network_asn,
+    traceroute: current.traceroute,
     dnsOk: current.dns_ok === null ? null : current.dns_ok === 1,
     httpsOk: current.https_ok === null ? null : current.https_ok === 1,
     httpsLatencyMs: current.https_latency_ms,
