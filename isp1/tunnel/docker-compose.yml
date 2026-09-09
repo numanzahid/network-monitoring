@@ -1,0 +1,27 @@
+services:
+  probe:
+    image: python:3.13-slim
+    container_name: ${PROBE_CONTAINER_NAME}
+    command: ["python", "/probe/probe.py"]
+    networks:
+      isp-monitor-macvlan:
+        ipv4_address: ${PROBE_IP}
+        mac_address: ${PROBE_MAC}
+    env_file:
+      - .env
+    volumes:
+      - ./probe:/probe:ro
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ${CLOUDFLARED_CONTAINER_NAME}
+    network_mode: service:probe
+    depends_on:
+      - probe
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?Set TUNNEL_TOKEN in .env before starting}
+    restart: unless-stopped
+
+networks:
+  isp-monitor-macvlan:
+    external: true

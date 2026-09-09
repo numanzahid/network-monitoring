@@ -1,0 +1,33 @@
+name: network-monitoring-isp1-speedtest
+
+services:
+  speedtest-tracker-isp1:
+    image: linuxserver/speedtest-tracker:latest
+    container_name: speedtest-tracker-isp1
+    networks:
+      isp-monitor-macvlan:
+        ipv4_address: ${TRACKER_IP}
+        mac_address: ${TRACKER_MAC}
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      APP_TIMEZONE: ${APP_TIMEZONE}
+      DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE}
+      APP_KEY: ${APP_KEY}
+      DB_CONNECTION: sqlite
+      APP_URL: ${APP_URL}
+      SPEEDTEST_EXTERNAL_IP_URL: ${SPEEDTEST_EXTERNAL_IP_URL}
+      SPEEDTEST_INTERNET_CHECK_HOSTNAME: ${SPEEDTEST_INTERNET_CHECK_HOSTNAME}
+      SPEEDTEST_SCHEDULE: ${SPEEDTEST_SCHEDULE}
+    labels:
+      wud.watch.digest: "true"
+    cap_add:
+      - NET_RAW
+    volumes:
+      - ./config:/config
+    restart: unless-stopped
+
+networks:
+  isp-monitor-macvlan:
+    external: true
