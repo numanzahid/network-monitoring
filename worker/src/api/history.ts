@@ -1,5 +1,5 @@
 import { getIspLabel, isValidIspId } from "../config";
-import { listOutages, listSpeedtests } from "../db";
+import { listLatencyBuckets, listOutages, listSpeedtests } from "../db";
 import type { Env, IspId } from "../types";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -12,7 +12,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function parseDays(value: string | null, fallback = 30): number {
+function parseDays(value: string | null, fallback = 7): number {
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
     return fallback;
@@ -52,7 +52,7 @@ export async function handleOutageHistory(
 ): Promise<Response> {
   const url = new URL(request.url);
   const ispParam = url.searchParams.get("isp");
-  const days = parseDays(url.searchParams.get("days"), 30);
+  const days = parseDays(url.searchParams.get("days"), 7);
 
   if (!ispParam || !isValidIspId(ispParam)) {
     return jsonResponse({ error: "Invalid isp query parameter" }, 400);
@@ -83,7 +83,7 @@ export async function handleSpeedtestHistory(
 ): Promise<Response> {
   const url = new URL(request.url);
   const ispParam = url.searchParams.get("isp");
-  const days = parseDays(url.searchParams.get("days"), 14);
+  const days = parseDays(url.searchParams.get("days"), 7);
 
   if (!ispParam || !isValidIspId(ispParam)) {
     return jsonResponse({ error: "Invalid isp query parameter" }, 400);
@@ -109,5 +109,32 @@ export async function handleSpeedtestHistory(
         packet_loss: result.packet_loss,
         server_name: result.server_name,
       })),
+  });
+}
+
+export async function handleLatencyHistory(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const ispParam = url.searchParams.get("isp");
+  const days = parseDays(url.searchParams.get("days"), 7);
+
+  if (!ispParam || !isValidIspId(ispParam)) {
+    return jsonResponse({ error: "Invalid isp query parameter" }, 400);
+  }
+
+  const ispId = ispParam as IspId;
+  const buckets = await listLatencyBuckets(env.DB, ispId, sinceDate(days));
+
+  return jsonResponse({
+    isp_id: ispId,
+    label: getIspLabel(env, ispId),
+    days,
+    buckets: buckets.map((bucket) => ({
+      bucket_at: bucket.bucket_at,
+      avg_latency_ms: bucket.avg_latency_ms,
+      sample_count: bucket.sample_count,
+    })),
   });
 }

@@ -20,17 +20,22 @@
 
       <section class="panel">
         <div class="panel-header">
-          <h2>Outage Timeline</h2>
+          <h2>Outages &amp; Latency</h2>
           <label>
             Days
             <select id="outage-days">
-              <option value="7">7</option>
+              <option value="1">1</option>
+              <option value="7" selected>7</option>
               <option value="14">14</option>
-              <option value="30" selected>30</option>
+              <option value="30">30</option>
             </select>
           </label>
         </div>
+        <p class="panel-note muted">
+          Outage bars show downtime length. Latency bars show average HTTPS check latency per hour.
+        </p>
         <div id="outage-charts" class="chart-grid"></div>
+        <div id="latency-charts" class="chart-grid"></div>
         <div id="outage-tables" class="table-grid"></div>
       </section>
 
@@ -40,8 +45,8 @@
           <label>
             Days
             <select id="speedtest-days">
-              <option value="7">7</option>
-              <option value="14" selected>14</option>
+              <option value="7" selected>7</option>
+              <option value="14">14</option>
               <option value="30">30</option>
             </select>
           </label>

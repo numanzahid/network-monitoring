@@ -10,6 +10,7 @@ import {
   failureReason,
   getIspStatus,
   getOpenOutage,
+  insertLatencySample,
   storeSpeedtestFromHeartbeat,
   updateIspStatus,
 } from "./db";
@@ -149,6 +150,16 @@ export async function processHeartbeat(
     httpsLatencyMs: payload.checks.https.latency_ms,
     latestSpeedtestId: speedtestId,
   });
+
+  if (payload.checks.https.latency_ms !== null) {
+    await insertLatencySample(
+      env.DB,
+      ispId,
+      now,
+      payload.checks.https.latency_ms,
+      now,
+    );
+  }
 
   return { ok: true };
 }

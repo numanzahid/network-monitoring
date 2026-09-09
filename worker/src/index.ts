@@ -1,5 +1,9 @@
 import { handleHeartbeat } from "./api/heartbeat";
-import { handleOutageHistory, handleSpeedtestHistory } from "./api/history";
+import {
+  handleLatencyHistory,
+  handleOutageHistory,
+  handleSpeedtestHistory,
+} from "./api/history";
 import { handleStatus } from "./api/status";
 import { handleScheduled } from "./cron";
 import type { Env } from "./types";
@@ -39,6 +43,9 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   }
   if (pathname === "/api/history/speedtests") {
     return handleSpeedtestHistory(request, env);
+  }
+  if (pathname === "/api/history/latency") {
+    return handleLatencyHistory(request, env);
   }
 
   return notFound();

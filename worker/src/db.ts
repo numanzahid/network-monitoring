@@ -312,6 +312,60 @@ export function checksAreHealthy(checks: HeartbeatPayload["checks"]): boolean {
   return checks.internet && checks.dns && checks.https.ok;
 }
 
+export async function insertLatencySample(
+  db: D1Database,
+  ispId: IspId,
+  recordedAt: string,
+  httpsLatencyMs: number,
+  createdAt: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO latency_samples (
+        isp_id, recorded_at, https_latency_ms, created_at
+      ) VALUES (?, ?, ?, ?)`,
+    )
+    .bind(ispId, recordedAt, httpsLatencyMs, createdAt)
+    .run();
+}
+
+export interface LatencyBucketRow {
+  bucket_at: string;
+  avg_latency_ms: number;
+  sample_count: number;
+}
+
+export async function listLatencyBuckets(
+  db: D1Database,
+  ispId: IspId,
+  since: string,
+): Promise<LatencyBucketRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT
+        substr(recorded_at, 1, 13) || ':00:00.000Z' AS bucket_at,
+        ROUND(AVG(https_latency_ms)) AS avg_latency_ms,
+        COUNT(*) AS sample_count
+      FROM latency_samples
+      WHERE isp_id = ? AND recorded_at >= ?
+      GROUP BY substr(recorded_at, 1, 13)
+      ORDER BY bucket_at ASC`,
+    )
+    .bind(ispId, since)
+    .all<LatencyBucketRow>();
+  return result.results ?? [];
+}
+
+export async function cleanupOldLatencySamples(
+  db: D1Database,
+  olderThan: string,
+): Promise<void> {
+  await db
+    .prepare("DELETE FROM latency_samples WHERE recorded_at < ?")
+    .bind(olderThan)
+    .run();
+}
+
 export function failureReason(checks: HeartbeatPayload["checks"]): string {
   const reasons: string[] = [];
   if (!checks.internet) {

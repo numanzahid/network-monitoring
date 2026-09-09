@@ -1,5 +1,15 @@
-import { getOutageHistory, getSpeedtestHistory, getStatus } from "./api.js";
-import { clearChartContainer, renderOutageCharts, renderSpeedtestCharts } from "./charts.js";
+import {
+  getLatencyHistory,
+  getOutageHistory,
+  getSpeedtestHistory,
+  getStatus,
+} from "./api.js";
+import {
+  clearChartContainer,
+  renderLatencyCharts,
+  renderOutageCharts,
+  renderSpeedtestCharts,
+} from "./charts.js";
 import {
   renderOutageTable,
   renderStatusCards,
@@ -9,6 +19,7 @@ import {
 const statusCards = document.getElementById("status-cards");
 const generatedAt = document.getElementById("generated-at");
 const outageCharts = document.getElementById("outage-charts");
+const latencyCharts = document.getElementById("latency-charts");
 const outageTables = document.getElementById("outage-tables");
 const speedtestCharts = document.getElementById("speedtest-charts");
 const outageDays = document.getElementById("outage-days");
@@ -22,17 +33,22 @@ async function loadHistory() {
   const speedtestDayCount = Number(speedtestDays.value);
 
   clearChartContainer(outageCharts);
+  clearChartContainer(latencyCharts);
   outageTables.innerHTML = "";
   clearChartContainer(speedtestCharts);
 
   const outageHistories = await Promise.all(
     ispIds.map((ispId) => getOutageHistory(ispId, outageDayCount)),
   );
+  const latencyHistories = await Promise.all(
+    ispIds.map((ispId) => getLatencyHistory(ispId, outageDayCount)),
+  );
   const speedtestHistories = await Promise.all(
     ispIds.map((ispId) => getSpeedtestHistory(ispId, speedtestDayCount)),
   );
 
   renderOutageCharts(outageCharts, outageHistories);
+  renderLatencyCharts(latencyCharts, latencyHistories);
   for (const history of outageHistories) {
     renderOutageTable(outageTables, history);
   }

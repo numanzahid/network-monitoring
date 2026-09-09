@@ -127,10 +127,26 @@ select {
   font-size: 1.15rem;
 }
 
-.chart-grid,
+.panel-note {
+  margin: 0 0 1rem;
+  font-size: 0.92rem;
+}
+
+.chart-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.chart-grid + .chart-grid {
+  margin-top: 1rem;
+}
+
 .table-grid {
   display: grid;
   gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
 }
 
 .chart-card,
