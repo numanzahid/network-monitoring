@@ -67,9 +67,22 @@ Open the local dev URL shown by Wrangler.
 
 ## Deploy
 
+### Recommended: Cloudflare + GitHub (headless-friendly)
+
+No `wrangler login` required. See `../docs/DEPLOY_CLOUDFLARE_GITHUB.md`.
+
+Summary:
+
+- Root directory in Cloudflare Builds: `worker`
+- Build command: `npm ci && npm run cf:build`
+- Deploy command: `npm run cf:deploy`
+- Store secrets in the Cloudflare Worker dashboard
+
+### Manual deploy (requires Wrangler auth)
+
 ```bash
 npm run typecheck
-npm run deploy
+npm run cf:deploy
 ```
 
 ## API

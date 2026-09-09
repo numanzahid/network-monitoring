@@ -57,14 +57,10 @@ isp2/
 
 ### 1. Deploy the Worker
 
-```bash
-cd worker
-npm install
-cp .dev.vars.example .dev.vars
-```
+**Recommended (headless):** connect GitHub to Cloudflare Workers Builds.
+See `docs/DEPLOY_CLOUDFLARE_GITHUB.md` for step-by-step setup.
 
-Create D1, update `wrangler.toml`, run migrations, set secrets, and deploy.
-See `worker/README.md` for full steps.
+**Manual:** use Wrangler from a machine with auth. See `worker/README.md`.
 
 ### 2. Create the macvlan network
 

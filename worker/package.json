@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "cf:deploy": "wrangler d1 migrations apply network-monitoring --remote && wrangler deploy",
+    "cf:build": "npm run typecheck",
     "db:migrate:local": "wrangler d1 migrations apply network-monitoring --local",
     "db:migrate:remote": "wrangler d1 migrations apply network-monitoring --remote",
     "typecheck": "tsc --noEmit"
