@@ -63,24 +63,27 @@ export function renderStatusCards(container, statusPayload) {
   }
 }
 
-export function renderOutageTable(container, historyPayload) {
-  const card = document.createElement("div");
-  card.className = "table-card";
-  card.innerHTML = `<h3>${historyPayload.label}</h3>`;
+export function renderOutageLog(container, histories) {
+  const outages = histories.flatMap((history) =>
+    history.outages.map((outage) => ({
+      label: history.label,
+      ...outage,
+    })),
+  );
 
-  if (!historyPayload.outages.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty-state";
-    empty.textContent = "No outages in this period.";
-    card.appendChild(empty);
-    container.appendChild(card);
+  if (!outages.length) {
     return;
   }
+
+  const card = document.createElement("div");
+  card.className = "table-card";
+  card.innerHTML = "<h3>Outage log</h3>";
 
   const table = document.createElement("table");
   table.innerHTML = `
     <thead>
       <tr>
+        <th>ISP</th>
         <th>Started</th>
         <th>Ended</th>
         <th>Duration</th>
@@ -91,9 +94,10 @@ export function renderOutageTable(container, historyPayload) {
   `;
 
   const tbody = table.querySelector("tbody");
-  for (const outage of historyPayload.outages) {
+  for (const outage of outages) {
     const row = document.createElement("tr");
     row.innerHTML = `
+      <td>${outage.label}</td>
       <td>${formatDate(outage.started_at)}</td>
       <td>${outage.ongoing ? "ongoing" : formatDate(outage.ended_at)}</td>
       <td>${formatDuration(outage.duration_seconds)}</td>

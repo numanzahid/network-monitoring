@@ -335,6 +335,30 @@ export interface LatencyBucketRow {
   sample_count: number;
 }
 
+export interface LatencySampleRow {
+  recorded_at: string;
+  https_latency_ms: number;
+}
+
+export async function listLatencySamples(
+  db: D1Database,
+  ispId: IspId,
+  since: string,
+  limit = 2000,
+): Promise<LatencySampleRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT recorded_at, https_latency_ms
+       FROM latency_samples
+       WHERE isp_id = ? AND recorded_at >= ?
+       ORDER BY recorded_at ASC
+       LIMIT ?`,
+    )
+    .bind(ispId, since, limit)
+    .all<LatencySampleRow>();
+  return result.results ?? [];
+}
+
 export async function listLatencyBuckets(
   db: D1Database,
   ispId: IspId,

@@ -1,5 +1,10 @@
 import { getIspLabel, isValidIspId } from "../config";
-import { listLatencyBuckets, listOutages, listSpeedtests } from "../db";
+import {
+  listLatencyBuckets,
+  listLatencySamples,
+  listOutages,
+  listSpeedtests,
+} from "../db";
 import type { Env, IspId } from "../types";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -125,15 +130,31 @@ export async function handleLatencyHistory(
   }
 
   const ispId = ispParam as IspId;
-  const buckets = await listLatencyBuckets(env.DB, ispId, sinceDate(days));
+  const since = sinceDate(days);
 
+  if (days <= 1) {
+    const samples = await listLatencySamples(env.DB, ispId, since);
+    return jsonResponse({
+      isp_id: ispId,
+      label: getIspLabel(env, ispId),
+      days,
+      granularity: "sample",
+      points: samples.map((sample) => ({
+        recorded_at: sample.recorded_at,
+        latency_ms: sample.https_latency_ms,
+      })),
+    });
+  }
+
+  const buckets = await listLatencyBuckets(env.DB, ispId, since);
   return jsonResponse({
     isp_id: ispId,
     label: getIspLabel(env, ispId),
     days,
-    buckets: buckets.map((bucket) => ({
-      bucket_at: bucket.bucket_at,
-      avg_latency_ms: bucket.avg_latency_ms,
+    granularity: "hour",
+    points: buckets.map((bucket) => ({
+      recorded_at: bucket.bucket_at,
+      latency_ms: bucket.avg_latency_ms,
       sample_count: bucket.sample_count,
     })),
   });

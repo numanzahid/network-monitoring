@@ -11,7 +11,7 @@ import {
   renderSpeedtestCharts,
 } from "./charts.js";
 import {
-  renderOutageTable,
+  renderOutageLog,
   renderStatusCards,
   setGeneratedAt,
 } from "./render.js";
@@ -49,9 +49,7 @@ async function loadHistory() {
 
   renderOutageCharts(outageCharts, outageHistories);
   renderLatencyCharts(latencyCharts, latencyHistories);
-  for (const history of outageHistories) {
-    renderOutageTable(outageTables, history);
-  }
+  renderOutageLog(outageTables, outageHistories);
   renderSpeedtestCharts(speedtestCharts, speedtestHistories);
 }
 

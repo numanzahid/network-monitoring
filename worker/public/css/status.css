@@ -132,6 +132,21 @@ select {
   font-size: 0.92rem;
 }
 
+.subsection-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.subsection-title:not(:first-of-type) {
+  margin-top: 1.25rem;
+}
+
+.section-empty {
+  margin: 0;
+}
+
 .chart-grid {
   display: grid;
   gap: 1rem;
@@ -144,9 +159,11 @@ select {
 .table-grid {
   display: grid;
   gap: 1rem;
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
+  margin-top: 0.75rem;
+}
+
+.table-grid:empty {
+  display: none;
 }
 
 .chart-card,

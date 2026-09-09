@@ -7,7 +7,7 @@ function destroyCharts() {
   chartInstances.length = 0;
 }
 
-function formatBucketLabel(value) {
+function formatTimeLabel(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
@@ -41,7 +41,7 @@ function outageSegments(outages, days) {
   return segments;
 }
 
-function createChartCard(title, emptyMessage) {
+function createChartCard(title) {
   const card = document.createElement("div");
   card.className = "chart-card";
   card.innerHTML = `<h3>${title}</h3>`;
@@ -52,7 +52,14 @@ function createChartCard(title, emptyMessage) {
   wrap.appendChild(canvas);
   card.appendChild(wrap);
 
-  return { card, canvas, emptyMessage };
+  return { card, canvas };
+}
+
+function showEmptyState(container, message) {
+  const empty = document.createElement("p");
+  empty.className = "empty-state section-empty";
+  empty.textContent = message;
+  container.appendChild(empty);
 }
 
 function showEmptyChart(card, message) {
@@ -63,18 +70,20 @@ function showEmptyChart(card, message) {
 }
 
 export function renderOutageCharts(container, histories) {
-  for (const history of histories) {
-    const { card, canvas, emptyMessage } = createChartCard(
-      `${history.label} outage duration`,
-      "No outages in this period.",
-    );
-    container.appendChild(card);
+  const hasOutages = histories.some((history) => history.outages.length > 0);
+  if (!hasOutages) {
+    showEmptyState(container, "No outages recorded in this period.");
+    return;
+  }
 
+  for (const history of histories) {
     const segments = outageSegments(history.outages, history.days);
     if (!segments.length) {
-      showEmptyChart(card, emptyMessage);
       continue;
     }
+
+    const { card, canvas } = createChartCard(`${history.label} outage duration`);
+    container.appendChild(card);
 
     const chart = new Chart(canvas, {
       type: "bar",
@@ -120,27 +129,31 @@ export function renderOutageCharts(container, histories) {
 
 export function renderLatencyCharts(container, histories) {
   for (const history of histories) {
-    const { card, canvas, emptyMessage } = createChartCard(
-      `${history.label} HTTPS latency`,
-      "No latency samples yet. Data appears after probes send heartbeats.",
-    );
+    const { card, canvas } = createChartCard(`${history.label} probe HTTPS latency`);
     container.appendChild(card);
 
-    const buckets = history.buckets ?? [];
-    if (!buckets.length) {
-      showEmptyChart(card, emptyMessage);
+    const points = history.points ?? [];
+    if (!points.length) {
+      showEmptyChart(
+        card,
+        "No probe latency history yet. Points appear as heartbeats are stored.",
+      );
       continue;
     }
 
     const chart = new Chart(canvas, {
-      type: "bar",
+      type: "line",
       data: {
-        labels: buckets.map((bucket) => formatBucketLabel(bucket.bucket_at)),
+        labels: points.map((point) => formatTimeLabel(point.recorded_at)),
         datasets: [
           {
-            label: "Avg HTTPS latency (ms)",
-            data: buckets.map((bucket) => bucket.avg_latency_ms),
-            backgroundColor: "#38bdf8",
+            label: "HTTPS latency (ms)",
+            data: points.map((point) => point.latency_ms),
+            borderColor: "#38bdf8",
+            backgroundColor: "rgba(56, 189, 248, 0.15)",
+            fill: true,
+            tension: 0.2,
+            pointRadius: history.granularity === "sample" ? 0 : 2,
           },
         ],
       },
