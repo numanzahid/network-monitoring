@@ -1,3 +1,5 @@
+name: network-monitoring-isp1-tunnel
+
 services:
   probe:
     image: python:3.13-slim
