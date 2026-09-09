@@ -1,0 +1,31 @@
+name = "network-monitoring"
+main = "src/index.ts"
+compatibility_date = "2025-02-24"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "network-monitoring"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+NOTIFY_ENABLED = "true"
+NOTIFIER_CHANNELS = "ntfy"
+FAILURE_THRESHOLD = "3"
+SUCCESS_THRESHOLD = "2"
+PROBE_INTERVAL_SECONDS = "60"
+HEARTBEAT_MAX_AGE_SECONDS = "300"
+HEARTBEAT_STALE_SECONDS = "180"
+ISP1_LABEL = "ISP1 Primary"
+ISP2_LABEL = "ISP2 Backup"
+STATUS_PAGE_URL = "https://status.example.com"
+NTFY_SERVER = "https://ntfy.sh"
+NTFY_TOPIC = "network-monitoring-alerts"
+NTFY_PRIORITY_DOWN = "high"
+NTFY_PRIORITY_UP = "default"

@@ -1,2 +1,1 @@
-# The first-stage probe uses Python's standard library.
-# Add pinned dependencies only when the Worker/API contract is finalized.
+requests>=2.32.0,<3

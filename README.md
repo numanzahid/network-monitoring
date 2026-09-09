@@ -1,24 +1,28 @@
 # Dual-ISP Network Monitoring
 
-**Status: Under development.** The probe, Cloudflare Worker, and heartbeat
-API are not implemented yet. Speedtest Tracker Compose stacks and environment
-templates are in place.
+**Status: Under development.** Core Worker, probe, API, and status page are
+implemented. Deployment-specific values (IPs, secrets, D1 database, tunnels)
+still need to be configured in your environment.
 
 Local monitoring infrastructure for tracking two independent internet
 connections. Each ISP has its own Speedtest Tracker instance and a dedicated
-probe/tunnel stack. A separate Cloudflare Worker can receive signed heartbeat
-data and publish an externally reachable status page.
+probe/tunnel stack. A Cloudflare Worker receives signed heartbeat data,
+stores history in D1, sends notifications, and publishes a public status page.
 
 ## Architecture
 
 ```text
-ISP 1 -> dedicated probe -> heartbeat API
+ISP 1 -> dedicated probe -> Worker heartbeat API
       -> dedicated Speedtest Tracker
       -> optional Cloudflare Tunnel
 
-ISP 2 -> dedicated probe -> heartbeat API
+ISP 2 -> dedicated probe -> Worker heartbeat API
       -> dedicated Speedtest Tracker
       -> optional Cloudflare Tunnel
+
+Worker -> D1 (outages, speedtests, status)
+       -> ntfy / telegram / discord notifications
+       -> public status page + JSON API
 ```
 
 The local services use Docker Compose and a macvlan network so each ISP
@@ -29,57 +33,105 @@ ISP-specific outage detection is required.
 ## Repository layout
 
 ```text
+worker/
+  README.md
+  wrangler.toml
+  migrations/
+  src/
+  public/                   # modular status page frontend
+
+docs/
+  HEARTBEAT_API.md
+
 isp1/
   README.md
   speedtest-tracker/
-    docker-compose.yml
-    .env.example
-    config/                 # runtime data, ignored by Git
   tunnel/
-    docker-compose.yml
-    .env.example
     probe/
-      probe.py
-      requirements.txt
 
 isp2/
   ...                       # same structure as isp1/
 ```
 
-## Speedtest Tracker
+## Quick start
 
-The two instances use separate persistent databases. This keeps performance
-history, selected servers, latency, and outage-related data isolated by ISP.
-Do not share the `config/` directories between instances.
+### 1. Deploy the Worker
 
-## Probe responsibilities
+```bash
+cd worker
+npm install
+cp .dev.vars.example .dev.vars
+```
 
-Each probe is intended to run at a short interval and report:
+Create D1, update `wrangler.toml`, run migrations, set secrets, and deploy.
+See `worker/README.md` for full steps.
 
-- Internet reachability
-- DNS resolution
-- HTTPS reachability and latency
-- Current public IPv4 address
-- Latest Speedtest Tracker result
-- Timestamp and probe identity
+### 2. Create the macvlan network
 
-The receiving Worker should validate and authenticate every heartbeat before
-storing it.
+```bash
+docker network create -d macvlan \
+  --subnet=<LAN_SUBNET> \
+  --gateway=<LAN_GATEWAY> \
+  -o parent=<PHYSICAL_INTERFACE> \
+  isp-monitor-macvlan
+```
 
-## Cloudflare integration
+### 3. Start Speedtest Tracker (per ISP)
 
-The external Worker can provide:
+```bash
+cd isp1/speedtest-tracker
+cp .env.example .env
+docker compose --env-file .env config
+docker compose --env-file .env up -d
+```
 
-- Public current status
-- Last successful check
-- ISP-specific outage history
-- Uptime statistics
-- Latest speed-test results
-- Notifications through external services
+Repeat for `isp2/speedtest-tracker`.
 
-Cloudflare credentials, tunnel tokens, probe secrets, API tokens, and local
-runtime data must remain outside version control. Use encrypted Worker secrets
-for server-side credentials.
+Create an API token in each Speedtest Tracker UI for the probe.
+
+### 4. Start probes (per ISP)
+
+Use the same `PROBE_SECRET` values configured in the Worker (`PROBE_SECRET_ISP1`
+/ `PROBE_SECRET_ISP2`).
+
+```bash
+cd isp1/tunnel
+cp .env.example .env
+docker compose --env-file .env config
+docker compose --env-file .env up -d
+```
+
+Repeat for `isp2/tunnel`.
+
+### 5. Open the status page
+
+Visit the Worker URL (for example `https://status.example.com`).
+
+## Notifications
+
+Notifications fire on debounced state changes:
+
+- ISP down after repeated failures
+- ISP recovery with outage duration
+
+Default channel is **ntfy**. Enable more channels in `worker/wrangler.toml`:
+
+```toml
+NOTIFIER_CHANNELS = "ntfy,telegram,discord"
+```
+
+Set the matching secrets in Wrangler or `.dev.vars` for local development.
+
+## API and frontend
+
+The status page is a thin client over JSON endpoints:
+
+- `GET /api/status`
+- `GET /api/history/outages?isp=isp1&days=30`
+- `GET /api/history/speedtests?isp=isp1&days=14`
+
+The frontend in `worker/public/` is intentionally modular so you can swap in a
+custom UI later without changing the API.
 
 ## Development principles
 
@@ -91,39 +143,6 @@ for server-side credentials.
 - Keep the public status page free of credentials and unnecessary private
   network information.
 
-## Local usage
-
-Copy each `.env.example` to `.env`, fill in local values, and validate the
-Compose configuration before starting a service:
-
-```bash
-docker compose --env-file .env config
-docker compose --env-file .env up -d
-```
-
-The tunnel and probe services should not be started until their Worker API
-contract and credentials are configured.
-
 ## License
 
-MIT License
-
-Copyright (c) 2026
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT License. See `LICENSE`.

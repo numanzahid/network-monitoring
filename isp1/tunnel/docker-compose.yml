@@ -2,7 +2,12 @@ services:
   probe:
     image: python:3.13-slim
     container_name: ${PROBE_CONTAINER_NAME}
-    command: ["python", "/probe/probe.py"]
+    command:
+      [
+        "sh",
+        "-c",
+        "pip install -q -r /probe/requirements.txt && python /probe/probe.py",
+      ]
     networks:
       isp-monitor-macvlan:
         ipv4_address: ${PROBE_IP}

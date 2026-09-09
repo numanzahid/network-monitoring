@@ -1,0 +1,6 @@
+PROBE_SECRET_ISP1=replace-with-isp1-probe-secret
+PROBE_SECRET_ISP2=replace-with-isp2-probe-secret
+NTFY_AUTH_TOKEN=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+DISCORD_WEBHOOK_URL=

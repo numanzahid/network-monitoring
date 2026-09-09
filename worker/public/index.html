@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Network Status</title>
+    <link rel="stylesheet" href="/css/status.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <h1>Dual-ISP Network Status</h1>
+        <p id="generated-at" class="muted">Loading...</p>
+      </div>
+      <button id="refresh-button" type="button">Refresh</button>
+    </header>
+
+    <main>
+      <section id="status-cards" class="card-grid" aria-live="polite"></section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Outage Timeline</h2>
+          <label>
+            Days
+            <select id="outage-days">
+              <option value="7">7</option>
+              <option value="14">14</option>
+              <option value="30" selected>30</option>
+            </select>
+          </label>
+        </div>
+        <div id="outage-charts" class="chart-grid"></div>
+        <div id="outage-tables" class="table-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Speedtest History</h2>
+          <label>
+            Days
+            <select id="speedtest-days">
+              <option value="7">7</option>
+              <option value="14" selected>14</option>
+              <option value="30">30</option>
+            </select>
+          </label>
+        </div>
+        <div id="speedtest-charts" class="chart-grid"></div>
+      </section>
+    </main>
+
+    <footer class="page-footer muted">
+      API-driven status page. Replace this shell with a custom frontend later without changing the API.
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>
