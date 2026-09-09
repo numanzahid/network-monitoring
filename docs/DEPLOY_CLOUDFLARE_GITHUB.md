@@ -80,8 +80,8 @@ Add **Secrets** (encrypted):
 
 | Name | Purpose |
 |------|---------|
-| `PROBE_SECRET_ISP1` | Must match `PROBE_SECRET` in `isp1/tunnel/.env` |
-| `PROBE_SECRET_ISP2` | Must match `PROBE_SECRET` in `isp2/tunnel/.env` |
+| `PROBE_SECRET_ISP1` | Must match `PROBE_SECRET` in `isp1/probe/.env` |
+| `PROBE_SECRET_ISP2` | Must match `PROBE_SECRET` in `isp2/probe/.env` |
 | `NTFY_TOPIC` | Random topic name, e.g. `nm-` + 32 hex chars (`openssl rand -hex 16`) |
 | `NTFY_AUTH_TOKEN` | Optional, extra protection on the ntfy topic |
 
@@ -107,7 +107,7 @@ After a successful build:
 
 ## Step 6: Point probes at the Worker
 
-In each `isp*/tunnel/.env`:
+In each `isp*/probe/.env`:
 
 ```env
 WORKER_URL=https://<your-worker-host>/api/heartbeat

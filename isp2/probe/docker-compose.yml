@@ -1,4 +1,4 @@
-name: network-monitoring-isp1-tunnel
+name: network-monitoring-isp2-probe
 
 services:
   probe:
@@ -17,16 +17,10 @@ services:
     env_file:
       - .env
     volumes:
-      - ./probe:/probe:ro
-    restart: unless-stopped
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: ${CLOUDFLARED_CONTAINER_NAME}
-    network_mode: service:probe
-    depends_on:
-      - probe
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?Set TUNNEL_TOKEN in .env before starting}
+      - ./probe.py:/probe/probe.py:ro
+      - ./requirements.txt:/probe/requirements.txt:ro
+    labels:
+      wud.watch.digest: "true"
     restart: unless-stopped
 
 networks:

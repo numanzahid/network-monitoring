@@ -1,136 +1,82 @@
 # Dual-ISP Network Monitoring
 
-Local monitoring infrastructure for tracking two independent internet
-connections. Each ISP has its own Speedtest Tracker instance and a dedicated
-probe/tunnel stack. A Cloudflare Worker receives signed heartbeat data,
-stores history in D1, sends notifications, and publishes a public status page.
+Local monitoring infrastructure for two independent internet connections.
+Each ISP has its own Speedtest Tracker instance and a dedicated network probe.
+The probe sends authenticated heartbeat data to an external HTTP receiver,
+which may be hosted on any compatible platform.
 
 ## Architecture
 
 ```text
-ISP 1 -> dedicated probe -> Worker heartbeat API
+ISP 1 -> dedicated probe -> HTTP heartbeat receiver
       -> dedicated Speedtest Tracker
-      -> optional Cloudflare Tunnel
 
-ISP 2 -> dedicated probe -> Worker heartbeat API
+ISP 2 -> dedicated probe -> HTTP heartbeat receiver
       -> dedicated Speedtest Tracker
-      -> optional Cloudflare Tunnel
 
-Worker -> D1 (outages, speedtests, status)
-       -> ntfy / telegram / discord notifications
-       -> public status page + JSON API
+Receiver -> database, outage history, notifications, status page
 ```
 
-The local services use Docker Compose and a macvlan network so each ISP
-monitor can have an independent LAN identity. Router policy routing must bind
-each monitor identity to its intended WAN and must not silently fail over when
+The local services use Docker Compose and macvlan networking so each ISP
+monitor has an independent LAN identity. Router policy routing must bind each
+monitor identity to its intended WAN and must not silently fail over when
 ISP-specific outage detection is required.
 
 ## Repository layout
 
 ```text
-worker/
-  README.md
-  wrangler.toml
-  migrations/
-  src/
-  public/
-
-docs/
-  HEARTBEAT_API.md
-
+worker/                    # optional reference receiver implementation
+docs/                      # API, notifications, and deployment notes
 isp1/
   README.md
   speedtest-tracker/
-  tunnel/
-    probe/
-
+  probe/
+    docker-compose.yml
+    .env.example
+    probe.py
+    requirements.txt
 isp2/
-  ...                       # same structure as isp1/
+  ...                     # same structure as isp1/
 ```
 
-## Quick start
+## Speedtest Tracker
 
-### 1. Deploy the Worker
+The two instances use separate persistent databases. This keeps performance
+history, latency, selected server, and result data isolated by ISP. Do not
+share the two `config/` directories.
 
-**Recommended (headless):** connect GitHub to Cloudflare Workers Builds.
-See `docs/DEPLOY_CLOUDFLARE_GITHUB.md` for step-by-step setup.
+## Probe responsibilities
 
-**Manual:** use Wrangler from a machine with auth. See `worker/README.md`.
+Each probe checks internet reachability, DNS, HTTPS latency, public IPv4, and
+the latest result from its matching Speedtest Tracker. It signs a JSON
+heartbeat and sends it to the configured receiver at the configured interval.
 
-### 2. Create the macvlan network
+The receiver should validate the ISP identity, timestamp, nonce, signature,
+and payload before storing it.
+
+## Configuration
+
+Copy the relevant `.env.example` to `.env` and provide deployment-specific
+values. Keep `.env`, database files, logs, and other runtime data out of Git.
 
 ```bash
-docker network create -d macvlan \
-  --subnet=<LAN_SUBNET> \
-  --gateway=<LAN_GATEWAY> \
-  -o parent=<PHYSICAL_INTERFACE> \
-  isp-monitor-macvlan
-```
-
-### 3. Start Speedtest Tracker (per ISP)
-
-```bash
-cd isp1/speedtest-tracker
-cp .env.example .env
 docker compose --env-file .env config
 docker compose --env-file .env up -d
 ```
 
-Repeat for `isp2/speedtest-tracker`.
+## Receiver options
 
-Create an API token in each Speedtest Tracker UI for the probe.
+The heartbeat receiver can be implemented as a Cloudflare Worker, a VPS
+service, a self-hosted API, or another HTTPS endpoint. The local probe only
+requires the endpoint URL and matching authentication secret.
 
-### 4. Start probes (per ISP)
+## Security
 
-Use the same `PROBE_SECRET` values configured in the Worker (`PROBE_SECRET_ISP1`
-/ `PROBE_SECRET_ISP2`).
-
-```bash
-cd isp1/tunnel
-cp .env.example .env
-docker compose --env-file .env config
-docker compose --env-file .env up -d
-```
-
-Repeat for `isp2/tunnel`.
-
-### 5. Open the status page
-
-Visit the Worker URL (for example `https://status.example.com`).
-
-## Notifications
-
-Notifications fire on debounced state changes:
-
-- ISP down after repeated failures
-- ISP recovery with outage duration
-
-Default channel is **ntfy**. Enable more channels in `worker/wrangler.toml`:
-
-```toml
-NOTIFIER_CHANNELS = "ntfy,telegram,discord"
-```
-
-Set the matching secrets in Wrangler or `.dev.vars` for local development.
-
-## API
-
-- `GET /api/status`
-- `GET /api/history/outages?isp=isp1&days=30`
-- `GET /api/history/latency?isp=isp1&days=7`
-- `GET /api/history/speedtests?isp=isp1&days=14`
-- `POST /api/heartbeat`
-
-## Development principles
-
-- Keep ISP1 and ISP2 configuration symmetrical.
-- Use separate credentials for each ISP where practical.
-- Reject stale, malformed, or replayed heartbeat requests.
-- Debounce outages so one missed check does not create a false alert.
-- Generate recovery events with the measured outage duration.
-- Keep the public status page free of credentials and unnecessary private
-  network information.
+- Use a different probe secret for each ISP.
+- Require HTTPS for the receiver URL.
+- Reject stale and replayed heartbeats.
+- Rate-limit the heartbeat endpoint.
+- Never commit API tokens, receiver secrets, or local databases.
 
 ## License
 
