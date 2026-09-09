@@ -12,7 +12,18 @@
         <h1>Dual-ISP Network Status</h1>
         <p id="generated-at" class="muted">Loading...</p>
       </div>
-      <button id="refresh-button" type="button">Refresh</button>
+      <div class="header-actions">
+        <label class="history-days-label">
+          Days
+          <select id="history-days">
+            <option value="1">1</option>
+            <option value="7" selected>7</option>
+            <option value="14">14</option>
+            <option value="30">30</option>
+          </select>
+        </label>
+        <button id="refresh-button" type="button">Refresh</button>
+      </div>
     </header>
 
     <main>
@@ -21,15 +32,6 @@
       <section class="panel">
         <div class="panel-header">
           <h2>Outages &amp; Latency</h2>
-          <label>
-            Days
-            <select id="outage-days">
-              <option value="1">1</option>
-              <option value="7" selected>7</option>
-              <option value="14">14</option>
-              <option value="30">30</option>
-            </select>
-          </label>
         </div>
         <h3 class="subsection-title">Outages</h3>
         <div id="outage-charts" class="chart-grid"></div>
@@ -41,15 +43,6 @@
       <section class="panel">
         <div class="panel-header">
           <h2>Speedtest History</h2>
-          <label>
-            Days
-            <select id="speedtest-days">
-              <option value="1">1</option>
-              <option value="7" selected>7</option>
-              <option value="14">14</option>
-              <option value="30">30</option>
-            </select>
-          </label>
         </div>
         <div id="speedtest-charts" class="chart-grid"></div>
       </section>

@@ -22,15 +22,17 @@ const outageCharts = document.getElementById("outage-charts");
 const latencyCharts = document.getElementById("latency-charts");
 const outageTables = document.getElementById("outage-tables");
 const speedtestCharts = document.getElementById("speedtest-charts");
-const outageDays = document.getElementById("outage-days");
-const speedtestDays = document.getElementById("speedtest-days");
+const historyDays = document.getElementById("history-days");
 const refreshButton = document.getElementById("refresh-button");
 
 let ispIds = [];
 
+function selectedDayCount() {
+  return Number(historyDays.value);
+}
+
 async function loadHistory() {
-  const outageDayCount = Number(outageDays.value);
-  const speedtestDayCount = Number(speedtestDays.value);
+  const dayCount = selectedDayCount();
 
   clearChartContainer(outageCharts);
   clearChartContainer(latencyCharts);
@@ -38,13 +40,13 @@ async function loadHistory() {
   clearChartContainer(speedtestCharts);
 
   const outageHistories = await Promise.all(
-    ispIds.map((ispId) => getOutageHistory(ispId, outageDayCount)),
+    ispIds.map((ispId) => getOutageHistory(ispId, dayCount)),
   );
   const latencyHistories = await Promise.all(
-    ispIds.map((ispId) => getLatencyHistory(ispId, outageDayCount)),
+    ispIds.map((ispId) => getLatencyHistory(ispId, dayCount)),
   );
   const speedtestHistories = await Promise.all(
-    ispIds.map((ispId) => getSpeedtestHistory(ispId, speedtestDayCount)),
+    ispIds.map((ispId) => getSpeedtestHistory(ispId, dayCount)),
   );
 
   renderOutageCharts(outageCharts, outageHistories);
@@ -65,11 +67,7 @@ refreshButton.addEventListener("click", () => {
   loadAll().catch(showError);
 });
 
-outageDays.addEventListener("change", () => {
-  loadHistory().catch(showError);
-});
-
-speedtestDays.addEventListener("change", () => {
+historyDays.addEventListener("change", () => {
   loadHistory().catch(showError);
 });
 

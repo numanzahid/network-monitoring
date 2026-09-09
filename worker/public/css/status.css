@@ -36,6 +36,20 @@ main {
   gap: 1rem;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.history-days-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
 .page-header h1 {
   margin: 0 0 0.25rem;
   font-size: 1.75rem;
