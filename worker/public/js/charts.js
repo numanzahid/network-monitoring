@@ -72,7 +72,7 @@ function showEmptyChart(card, message) {
 export function renderOutageCharts(container, histories) {
   const hasOutages = histories.some((history) => history.outages.length > 0);
   if (!hasOutages) {
-    showEmptyState(container, "No outages recorded in this period.");
+    showEmptyState(container, "No outages.");
     return;
   }
 
@@ -136,7 +136,7 @@ export function renderLatencyCharts(container, histories) {
     if (!points.length) {
       showEmptyChart(
         card,
-        "No probe latency history yet. Points appear as heartbeats are stored.",
+        "No latency data.",
       );
       continue;
     }
@@ -189,7 +189,7 @@ export function renderSpeedtestCharts(container, histories) {
 
     const results = history.results ?? [];
     if (!results.length) {
-      showEmptyChart(card, "No speedtest results in this period.");
+      showEmptyChart(card, "No speedtest data.");
       continue;
     }
 

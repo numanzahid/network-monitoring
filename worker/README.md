@@ -8,9 +8,8 @@ the public status page.
 - Signed heartbeat ingestion for `isp1` and `isp2`
 - Debounced outage detection and recovery events
 - D1 storage for outages and speedtest history
-- Modular notifications: `ntfy`, `telegram`, `discord`
-- JSON API for a replaceable frontend
-- Simple bundled status page in `public/`
+- Notifications: `ntfy`, `telegram`, `discord`
+- JSON API and status page in `public/`
 
 ## Setup
 
@@ -93,17 +92,6 @@ npm run cf:deploy
 - `POST /api/heartbeat`
 
 See `../docs/HEARTBEAT_API.md` for the heartbeat contract.
-
-## Frontend
-
-The default UI lives in `public/`:
-
-- `js/api.js` fetches JSON from the Worker API
-- `js/render.js` renders cards and tables
-- `js/charts.js` renders Chart.js graphs
-- `js/app.js` wires refresh and filters
-
-Replace or extend `public/` later without changing the API.
 
 ## Notifications
 

@@ -1,9 +1,5 @@
 # Dual-ISP Network Monitoring
 
-**Status: Under development.** Core Worker, probe, API, and status page are
-implemented. Deployment-specific values (IPs, secrets, D1 database, tunnels)
-still need to be configured in your environment.
-
 Local monitoring infrastructure for tracking two independent internet
 connections. Each ISP has its own Speedtest Tracker instance and a dedicated
 probe/tunnel stack. A Cloudflare Worker receives signed heartbeat data,
@@ -38,7 +34,7 @@ worker/
   wrangler.toml
   migrations/
   src/
-  public/                   # modular status page frontend
+  public/
 
 docs/
   HEARTBEAT_API.md
@@ -118,16 +114,13 @@ NOTIFIER_CHANNELS = "ntfy,telegram,discord"
 
 Set the matching secrets in Wrangler or `.dev.vars` for local development.
 
-## API and frontend
-
-The status page is a thin client over JSON endpoints:
+## API
 
 - `GET /api/status`
 - `GET /api/history/outages?isp=isp1&days=30`
+- `GET /api/history/latency?isp=isp1&days=7`
 - `GET /api/history/speedtests?isp=isp1&days=14`
-
-The frontend in `worker/public/` is intentionally modular so you can swap in a
-custom UI later without changing the API.
+- `POST /api/heartbeat`
 
 ## Development principles
 
