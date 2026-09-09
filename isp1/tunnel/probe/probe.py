@@ -31,6 +31,13 @@ def env_int(name: str, default: int) -> int:
     return int(raw)
 
 
+def normalize_worker_url(url: str) -> str:
+    cleaned = url.strip().rstrip("/")
+    if cleaned.endswith("/api/heartbeat"):
+        return cleaned
+    return f"{cleaned}/api/heartbeat"
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -195,7 +202,7 @@ def post_heartbeat(worker_url: str, secret: str, payload: dict[str, Any], timeou
 
 def run_once() -> None:
     isp_id = env("ISP_ID")
-    worker_url = env("WORKER_URL")
+    worker_url = normalize_worker_url(env("WORKER_URL"))
     secret = env("PROBE_SECRET")
     tracker_ip = env("TRACKER_IP")
 
