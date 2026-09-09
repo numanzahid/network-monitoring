@@ -109,4 +109,5 @@ export interface NotificationPayload {
   type: NotificationType;
   priority?: "min" | "low" | "default" | "high" | "urgent";
   tags?: string[];
+  clickUrl?: string;
 }

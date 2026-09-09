@@ -25,6 +25,9 @@ export class NtfyNotifier implements Notifier {
     if (payload.priority) {
       headers.Priority = payload.priority;
     }
+    if (payload.clickUrl) {
+      headers.Click = payload.clickUrl;
+    }
     if (this.authToken) {
       headers.Authorization = `Bearer ${this.authToken}`;
     }

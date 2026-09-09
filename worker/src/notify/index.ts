@@ -89,6 +89,7 @@ export function buildDownNotification(
     body: lines.join("\n"),
     priority: env.NTFY_PRIORITY_DOWN as NotificationPayload["priority"],
     tags: ["warning", ispId, "down"],
+    clickUrl: env.STATUS_PAGE_URL || undefined,
   };
 }
 
@@ -118,6 +119,7 @@ export function buildRecoveryNotification(
     body: lines.join("\n"),
     priority: env.NTFY_PRIORITY_UP as NotificationPayload["priority"],
     tags: ["white_check_mark", ispId, "up"],
+    clickUrl: env.STATUS_PAGE_URL || undefined,
   };
 }
 

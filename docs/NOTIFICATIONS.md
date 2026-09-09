@@ -43,6 +43,9 @@ Subscribe in the ntfy app to `https://ntfy.sh/<NTFY_TOPIC>`. Do not commit the
 topic name to the repository; anyone who knows it can subscribe or post to it
 on the public ntfy.sh server.
 
+Tapping a notification opens `STATUS_PAGE_URL` from `wrangler.toml` (ntfy `Click`
+header).
+
 ## Telegram
 
 Secrets:
