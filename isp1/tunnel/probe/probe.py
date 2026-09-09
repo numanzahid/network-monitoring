@@ -14,9 +14,6 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
 import requests
 
 
@@ -175,25 +172,25 @@ def sign_payload(secret: str, ts: str, nonce: str, body: str) -> str:
 def post_heartbeat(worker_url: str, secret: str, payload: dict[str, Any], timeout: float) -> None:
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     signature = sign_payload(secret, payload["ts"], payload["nonce"], body)
-    request = Request(
-        worker_url,
-        data=body.encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {signature}",
-        },
-        method="POST",
-    )
 
     try:
-        with urlopen(request, timeout=timeout) as response:
-            if response.status >= 400:
-                raise RuntimeError(f"Heartbeat failed with status {response.status}")
-    except HTTPError as error:
-        detail = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Heartbeat failed ({error.code}): {detail}") from error
-    except URLError as error:
+        response = requests.post(
+            worker_url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {signature}",
+                "User-Agent": "network-monitoring-probe/1.0",
+            },
+            timeout=timeout,
+        )
+    except requests.RequestException as error:
         raise RuntimeError(f"Heartbeat request failed: {error}") from error
+
+    if response.status_code >= 400:
+        detail = response.text.strip() or f"status {response.status_code}"
+        raise RuntimeError(f"Heartbeat failed ({response.status_code}): {detail}")
 
 
 def run_once() -> None:
