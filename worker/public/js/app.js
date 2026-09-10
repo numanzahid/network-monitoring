@@ -6,10 +6,12 @@ import {
 } from "./api.js";
 import {
   clearChartContainer,
+  isLatencyScaleLocked,
   mountLatencyCharts,
   mountSpeedtestCharts,
   resetLatencyCharts,
   resetSpeedtestCharts,
+  setLatencyScaleLocked,
   updateLatencyCharts,
 } from "./charts.js";
 import {
@@ -25,20 +27,21 @@ const generatedAt = document.getElementById("generated-at");
 const latencyCharts = document.getElementById("latency-charts");
 const historyTables = document.getElementById("history-tables");
 const speedtestCharts = document.getElementById("speedtest-charts");
-const latencyDays = document.getElementById("latency-days");
+const latencyRange = document.getElementById("latency-range");
 const speedtestDays = document.getElementById("speedtest-days");
 const tableDays = document.getElementById("table-days");
+const latencyScaleLock = document.getElementById("latency-scale-lock");
 
 let ispIds = [];
 let latencyChartsMounted = false;
 let speedtestChartsMounted = false;
 let tablesMounted = false;
-let mountedLatencyDayCount = null;
+let mountedLatencyRange = null;
 let mountedSpeedtestDayCount = null;
 let mountedTableDayCount = null;
 
-function selectedLatencyDayCount() {
-  return Number(latencyDays.value);
+function selectedLatencyRange() {
+  return latencyRange.value;
 }
 
 function selectedSpeedtestDayCount() {
@@ -49,8 +52,8 @@ function selectedTableDayCount() {
   return Number(tableDays.value);
 }
 
-async function fetchLatencyHistories(dayCount) {
-  return Promise.all(ispIds.map((ispId) => getLatencyHistory(ispId, dayCount)));
+async function fetchLatencyHistories(range) {
+  return Promise.all(ispIds.map((ispId) => getLatencyHistory(ispId, range)));
 }
 
 async function fetchSpeedtestHistories(dayCount) {
@@ -71,15 +74,15 @@ function renderHistoryTables(outageHistories, latencyHistories) {
   renderHeartbeatGapLog(historyTables, latencyHistories);
 }
 
-async function mountLatencyChartsSection(dayCount) {
+async function mountLatencyChartsSection(range) {
   resetLatencyCharts();
   clearChartContainer(latencyCharts);
 
-  const latencyHistories = await fetchLatencyHistories(dayCount);
+  const latencyHistories = await fetchLatencyHistories(range);
   mountLatencyCharts(latencyCharts, latencyHistories);
 
   latencyChartsMounted = true;
-  mountedLatencyDayCount = dayCount;
+  mountedLatencyRange = range;
 }
 
 async function mountSpeedtestChartsSection(dayCount) {
@@ -94,15 +97,15 @@ async function mountSpeedtestChartsSection(dayCount) {
 }
 
 async function loadLatencyCharts({ remount = false } = {}) {
-  const dayCount = selectedLatencyDayCount();
-  const needsRemount = remount || !latencyChartsMounted || mountedLatencyDayCount !== dayCount;
+  const range = selectedLatencyRange();
+  const needsRemount = remount || !latencyChartsMounted || mountedLatencyRange !== range;
 
   if (needsRemount) {
-    await mountLatencyChartsSection(dayCount);
+    await mountLatencyChartsSection(range);
     return;
   }
 
-  const latencyHistories = await fetchLatencyHistories(dayCount);
+  const latencyHistories = await fetchLatencyHistories(range);
   updateLatencyCharts(latencyHistories);
 }
 
@@ -167,7 +170,19 @@ async function loadAll({
   ]);
 }
 
-latencyDays.addEventListener("change", () => {
+function syncLatencyScaleLockButton() {
+  const locked = isLatencyScaleLocked();
+  latencyScaleLock.setAttribute("aria-pressed", String(locked));
+  latencyScaleLock.textContent = locked ? "Peak scale locked" : "Peak scale auto";
+}
+
+latencyScaleLock.addEventListener("click", () => {
+  setLatencyScaleLocked(!isLatencyScaleLocked());
+  syncLatencyScaleLockButton();
+  loadLatencyCharts().catch(showError);
+});
+
+latencyRange.addEventListener("change", () => {
   loadLatencyCharts({ remount: true }).catch(showError);
 });
 
@@ -183,6 +198,7 @@ function showError(error) {
   generatedAt.textContent = error instanceof Error ? error.message : "Failed to load status";
 }
 
+syncLatencyScaleLockButton();
 loadAll({
   remountLatencyCharts: true,
   remountSpeedtestCharts: true,

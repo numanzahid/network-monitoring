@@ -1,5 +1,6 @@
 const chartRegistry = new Map();
 let resizeListenerBound = false;
+let latencyScaleLocked = true;
 
 const chartOptions = {
   responsive: true,
@@ -86,7 +87,59 @@ function setChartTooltipActive(chart, elements, position) {
   chart.update("none");
 }
 
-function buildChartOptions(yAxisLabel, valueUnit) {
+function maxYFromChartData(data) {
+  let max = 0;
+  for (const dataset of data.datasets) {
+    for (const point of dataset.data) {
+      if (point.y !== null && point.y !== undefined && point.y > max) {
+        max = point.y;
+      }
+    }
+  }
+  return max;
+}
+
+function sharedLatencyAxisMax(histories) {
+  let peak = 0;
+  for (const history of histories) {
+    const data = buildLatencyChartData(history);
+    if (data) {
+      peak = Math.max(peak, maxYFromChartData(data));
+    }
+  }
+  return niceAxisMax(peak);
+}
+
+function niceAxisMax(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  const padded = value * 1.1;
+  const magnitude = 10 ** Math.floor(Math.log10(padded));
+  const step = magnitude >= 100 ? magnitude / 2 : magnitude / 5;
+  return Math.ceil(padded / step) * step;
+}
+
+export function isLatencyScaleLocked() {
+  return latencyScaleLocked;
+}
+
+export function setLatencyScaleLocked(locked) {
+  latencyScaleLocked = locked;
+}
+
+function buildChartOptions(yAxisLabel, valueUnit, yAxisMax) {
+  const yScale = {
+    beginAtZero: true,
+    title: { display: true, text: yAxisLabel, color: "#9ca3af" },
+    ticks: { color: "#9ca3af" },
+    grid: { color: "#1f2937" },
+  };
+  if (yAxisMax !== undefined) {
+    yScale.max = yAxisMax;
+  }
+
   return {
     ...chartOptions,
     interaction: {
@@ -103,12 +156,7 @@ function buildChartOptions(yAxisLabel, valueUnit) {
     },
     scales: {
       x: timeScaleOptions(),
-      y: {
-        beginAtZero: true,
-        title: { display: true, text: yAxisLabel, color: "#9ca3af" },
-        ticks: { color: "#9ca3af" },
-        grid: { color: "#1f2937" },
-      },
+      y: yScale,
     },
     plugins: {
       legend: { labels: { color: "#e5e7eb" } },
@@ -343,7 +391,7 @@ function createEmptyState(message) {
   return empty;
 }
 
-function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit) {
+function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit, yAxisMax) {
   const existing = chartRegistry.get(chartKey);
   if (!data) {
     if (existing) {
@@ -367,7 +415,7 @@ function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit) {
     canvas = newCanvas;
   }
 
-  const options = buildChartOptions(yAxisLabel, valueUnit);
+  const options = buildChartOptions(yAxisLabel, valueUnit, yAxisMax);
 
   if (existing) {
     existing.data = data;
@@ -385,6 +433,46 @@ function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit) {
   chartRegistry.set(chartKey, chart);
   bindResizeListener();
   scheduleChartResize(chart);
+}
+
+function renderLatencyCharts(container, histories, { mount = false } = {}) {
+  const yAxisMax = latencyScaleLocked ? sharedLatencyAxisMax(histories) : undefined;
+
+  if (mount) {
+    container.innerHTML = "";
+  }
+
+  for (const history of histories) {
+    const chartKey = `latency-${history.isp_id}`;
+    const data = buildLatencyChartData(history);
+
+    if (mount) {
+      const { card, canvas, heading } = createChartCard(latencyTitle(history), chartKey);
+      container.appendChild(card);
+
+      if (!data) {
+        showEmptyChart(card, "No data for this period. Run npm run db:seed in worker/ for local demo data.");
+        continue;
+      }
+
+      heading.textContent = latencyTitle(history);
+      ensureChart(card, canvas, chartKey, data, "Milliseconds", "ms", yAxisMax);
+      continue;
+    }
+
+    const card = document.querySelector(`[data-chart-key="${chartKey}"]`);
+    if (!card) {
+      continue;
+    }
+
+    const heading = card.querySelector("h3");
+    if (heading) {
+      heading.textContent = latencyTitle(history);
+    }
+
+    const canvas = card.querySelector("canvas");
+    ensureChart(card, canvas, chartKey, data, "Milliseconds", "ms", yAxisMax);
+  }
 }
 
 function mountChartSection(
@@ -441,26 +529,11 @@ function updateChartSection(
 }
 
 export function mountLatencyCharts(container, histories) {
-  mountChartSection(
-    container,
-    histories,
-    "latency",
-    latencyTitle,
-    buildLatencyChartData,
-    "Milliseconds",
-    "ms",
-  );
+  renderLatencyCharts(container, histories, { mount: true });
 }
 
 export function updateLatencyCharts(histories) {
-  updateChartSection(
-    histories,
-    "latency",
-    latencyTitle,
-    buildLatencyChartData,
-    "Milliseconds",
-    "ms",
-  );
+  renderLatencyCharts(null, histories, { mount: false });
 }
 
 export function mountSpeedtestCharts(container, histories) {

@@ -32,6 +32,23 @@ function sinceDate(days: number): string {
   return date.toISOString();
 }
 
+function parseHours(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return null;
+  }
+  return Math.min(parsed, 24 * 365);
+}
+
+function sinceHours(hours: number): string {
+  const date = new Date();
+  date.setTime(date.getTime() - hours * 60 * 60 * 1000);
+  return date.toISOString();
+}
+
 function computeUptimePercent(outages: { started_at: string; ended_at: string | null; duration_seconds: number | null }[], days: number): number {
   const windowStart = Date.parse(sinceDate(days));
   const windowEnd = Date.now();
@@ -121,22 +138,25 @@ export async function handleLatencyHistory(
 ): Promise<Response> {
   const url = new URL(request.url);
   const ispParam = url.searchParams.get("isp");
-  const days = parseDays(url.searchParams.get("days"), 7);
+  const hours = parseHours(url.searchParams.get("hours"));
+  const days = hours === null ? parseDays(url.searchParams.get("days"), 7) : null;
 
   if (!ispParam || !isValidIspId(ispParam)) {
     return jsonResponse({ error: "Invalid isp query parameter" }, 400);
   }
 
   const ispId = ispParam as IspId;
-  const since = sinceDate(days);
+  const since = hours !== null ? sinceHours(hours) : sinceDate(days!);
+  const useSamples = hours !== null || days! <= 1;
 
   const gaps = await listHeartbeatGaps(env.DB, ispId, since);
 
-  if (days <= 1) {
+  if (useSamples) {
     const samples = await listLatencySamples(env.DB, ispId, since);
     return jsonResponse({
       isp_id: ispId,
       label: getIspLabel(env, ispId),
+      hours,
       days,
       granularity: "sample",
       points: samples.map((sample) => ({
@@ -158,6 +178,7 @@ export async function handleLatencyHistory(
   return jsonResponse({
     isp_id: ispId,
     label: getIspLabel(env, ispId),
+    hours,
     days,
     granularity: "hour",
     points: buckets.map((bucket) => ({

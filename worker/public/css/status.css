@@ -214,6 +214,23 @@ select {
   margin-bottom: 1rem;
 }
 
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.panel-toggle {
+  cursor: pointer;
+}
+
+.panel-toggle[aria-pressed="true"] {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 1.15rem;
