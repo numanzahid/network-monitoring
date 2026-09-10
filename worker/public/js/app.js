@@ -206,4 +206,4 @@ loadAll({
 }).catch(showError);
 setInterval(() => {
   refreshLiveData().catch(showError);
-}, 15000);
+}, 60000);

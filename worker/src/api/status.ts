@@ -6,7 +6,6 @@ import {
   listIspStatuses,
   listSpeedtests,
 } from "../db";
-import { evaluateStaleProbes } from "../outages";
 import type { Env, IspId, IspStatusRow } from "../types";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -108,8 +107,6 @@ async function buildIspSummary(env: Env, status: IspStatusRow) {
 }
 
 export async function handleStatus(env: Env): Promise<Response> {
-  await evaluateStaleProbes(env);
-
   const statuses = await listIspStatuses(env.DB);
   const isps = await Promise.all(statuses.map((status) => buildIspSummary(env, status)));
 

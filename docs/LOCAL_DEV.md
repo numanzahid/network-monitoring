@@ -67,15 +67,30 @@ After seeding, both ISPs start **UP**. ISP2 has an older heartbeat (about 60 sec
 
 Timing (default config):
 
-- **120s** without heartbeat: **STALE**
-- **180s** without heartbeat: **DOWN**
-- **Probe silent (24h)**: total minutes the probe was silent in the last 24 hours (updates on each refresh)
+- **120s** without heartbeat: **STALE** (computed on page load from `last_seen_at`)
+- **180s** without heartbeat: **DOWN** (written by cron via `evaluateStaleProbes`)
+- **Probe silent (24h)**: total minutes the probe was silent in the last 24 hours
 
 Step through **UP -> STALE -> DOWN**:
 
 1. `npm run db:seed` and open http://localhost:8787
 2. Both cards show **UP**
-3. Wait about 60 seconds: ISP2 shows **STALE**
-4. Wait another ~60 seconds: ISP2 shows **DOWN**
+3. Wait about 60 seconds and refresh: ISP2 shows **STALE**
+4. Wait another ~60 seconds, then trigger cron locally:
+
+   ```bash
+   curl "http://localhost:8787/cdn-cgi/local/scheduled"
+   ```
+
+5. Refresh the page: ISP2 shows **DOWN**
 
 If ISP2 loads **DOWN** immediately, run `npm run db:seed` again to reset leftover local state.
+
+## D1 usage notes
+
+Production optimizations (to stay within the free tier):
+
+- Status page auto-refresh is **60 seconds** (status + latency only)
+- Stale/down evaluation runs on the **cron** only, not on every `/api/status` call
+- Old row cleanup runs **once daily** at 03:00 UTC (not every minute)
+- Multi-day latency charts read pre-aggregated `latency_hourly` rows instead of scanning raw samples

@@ -171,6 +171,7 @@ const tracerouteIsp2 = [
   " 4  1.1.1.1  3.011 ms",
 ].join("\n");
 
+add("DELETE FROM latency_hourly;");
 add("DELETE FROM latency_samples;");
 add("DELETE FROM heartbeat_gaps;");
 add("DELETE FROM outage_events;");
@@ -193,6 +194,32 @@ for (const gap of heartbeatGaps) {
 for (const sample of latencySamples) {
   add(
     `INSERT INTO latency_samples (isp_id, recorded_at, https_latency_ms, created_at) VALUES (${sqlString(sample.isp_id)}, ${sqlString(sample.recorded_at)}, ${sqlNumber(sample.https_latency_ms)}, ${sqlString(sample.created_at)});`,
+  );
+}
+
+const latencyHourly = new Map();
+for (const sample of latencySamples) {
+  const bucketAt = `${sample.recorded_at.slice(0, 13)}:00:00.000Z`;
+  const key = `${sample.isp_id}|${bucketAt}`;
+  const existing = latencyHourly.get(key);
+  if (!existing) {
+    latencyHourly.set(key, {
+      isp_id: sample.isp_id,
+      bucket_at: bucketAt,
+      min_latency_ms: sample.https_latency_ms,
+      max_latency_ms: sample.https_latency_ms,
+      sample_count: 1,
+    });
+  } else {
+    existing.min_latency_ms = Math.min(existing.min_latency_ms, sample.https_latency_ms);
+    existing.max_latency_ms = Math.max(existing.max_latency_ms, sample.https_latency_ms);
+    existing.sample_count += 1;
+  }
+}
+
+for (const bucket of latencyHourly.values()) {
+  add(
+    `INSERT INTO latency_hourly (isp_id, bucket_at, min_latency_ms, max_latency_ms, sample_count) VALUES (${sqlString(bucket.isp_id)}, ${sqlString(bucket.bucket_at)}, ${sqlNumber(bucket.min_latency_ms)}, ${sqlNumber(bucket.max_latency_ms)}, ${sqlNumber(bucket.sample_count)});`,
   );
 }
 

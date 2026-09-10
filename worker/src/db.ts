@@ -337,6 +337,31 @@ export function checksAreHealthy(checks: HeartbeatPayload["checks"]): boolean {
   return checks.internet && checks.dns && checks.https.ok;
 }
 
+function latencyHourBucketAt(recordedAt: string): string {
+  return `${recordedAt.slice(0, 13)}:00:00.000Z`;
+}
+
+export async function upsertLatencyHourly(
+  db: D1Database,
+  ispId: IspId,
+  recordedAt: string,
+  httpsLatencyMs: number,
+): Promise<void> {
+  const bucketAt = latencyHourBucketAt(recordedAt);
+  await db
+    .prepare(
+      `INSERT INTO latency_hourly (
+        isp_id, bucket_at, min_latency_ms, max_latency_ms, sample_count
+      ) VALUES (?, ?, ?, ?, 1)
+      ON CONFLICT(isp_id, bucket_at) DO UPDATE SET
+        min_latency_ms = MIN(latency_hourly.min_latency_ms, excluded.min_latency_ms),
+        max_latency_ms = MAX(latency_hourly.max_latency_ms, excluded.max_latency_ms),
+        sample_count = latency_hourly.sample_count + 1`,
+    )
+    .bind(ispId, bucketAt, httpsLatencyMs, httpsLatencyMs)
+    .run();
+}
+
 export async function insertLatencySample(
   db: D1Database,
   ispId: IspId,
@@ -352,6 +377,7 @@ export async function insertLatencySample(
     )
     .bind(ispId, recordedAt, httpsLatencyMs, createdAt)
     .run();
+  await upsertLatencyHourly(db, ispId, recordedAt, httpsLatencyMs);
 }
 
 export interface LatencyBucketRow {
@@ -393,16 +419,15 @@ export async function listLatencyBuckets(
   const result = await db
     .prepare(
       `SELECT
-        substr(recorded_at, 1, 13) || ':00:00.000Z' AS bucket_at,
-        MIN(https_latency_ms) AS min_latency_ms,
-        MAX(https_latency_ms) AS max_latency_ms,
-        COUNT(*) AS sample_count
-      FROM latency_samples
-      WHERE isp_id = ? AND recorded_at >= ?
-      GROUP BY substr(recorded_at, 1, 13)
+        bucket_at,
+        min_latency_ms,
+        max_latency_ms,
+        sample_count
+      FROM latency_hourly
+      WHERE isp_id = ? AND bucket_at >= ?
       ORDER BY bucket_at ASC`,
     )
-    .bind(ispId, since)
+    .bind(ispId, latencyHourBucketAt(since))
     .all<LatencyBucketRow>();
   return result.results ?? [];
 }
@@ -413,6 +438,16 @@ export async function cleanupOldLatencySamples(
 ): Promise<void> {
   await db
     .prepare("DELETE FROM latency_samples WHERE recorded_at < ?")
+    .bind(olderThan)
+    .run();
+}
+
+export async function cleanupOldLatencyHourly(
+  db: D1Database,
+  olderThan: string,
+): Promise<void> {
+  await db
+    .prepare("DELETE FROM latency_hourly WHERE bucket_at < ?")
     .bind(olderThan)
     .run();
 }
@@ -516,20 +551,25 @@ export async function countMissedHeartbeatMinutes(
   ispId: IspId,
   since: string,
 ): Promise<number> {
-  const gaps = await listHeartbeatGaps(db, ispId, since);
-  const sinceMs = Date.parse(since);
-  const nowMs = Date.now();
-  let totalSeconds = 0;
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(SUM(
+        MAX(
+          0,
+          CAST(
+            (strftime('%s', COALESCE(ended_at, datetime('now')))
+             - strftime('%s', CASE WHEN started_at < ? THEN ? ELSE started_at END))
+            AS INTEGER
+          )
+        )
+      ), 0) AS total_seconds
+      FROM heartbeat_gaps
+      WHERE isp_id = ? AND started_at >= ?`,
+    )
+    .bind(since, since, ispId, since)
+    .first<{ total_seconds: number }>();
 
-  for (const gap of gaps) {
-    const start = Math.max(Date.parse(gap.started_at), sinceMs);
-    const end = gap.ended_at ? Date.parse(gap.ended_at) : nowMs;
-    if (end > start) {
-      totalSeconds += Math.floor((end - start) / 1000);
-    }
-  }
-
-  return Math.floor(totalSeconds / 60);
+  return Math.floor((row?.total_seconds ?? 0) / 60);
 }
 
 export async function cleanupOldHeartbeatGaps(
