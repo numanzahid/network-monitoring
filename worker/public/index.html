@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Network Status</title>
+    <title>Network Monitoring</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/css/status.css" />
   </head>
   <body>
     <header class="page-header">
       <div>
-        <h1>Dual-ISP Network Status</h1>
+        <h1>Network Status</h1>
         <p id="generated-at" class="muted">Loading...</p>
       </div>
     </header>
@@ -18,33 +18,51 @@
     <main>
       <section id="status-cards" class="card-grid" aria-live="polite"></section>
 
-      <div class="history-toolbar">
-        <label class="history-days-label">
-          Days
-          <select id="history-days">
-            <option value="1">1</option>
-            <option value="7" selected>7</option>
-            <option value="14">14</option>
-            <option value="30">30</option>
-          </select>
-        </label>
-        <button id="refresh-button" type="button">Refresh</button>
-      </div>
-
       <section class="panel">
         <div class="panel-header">
-          <h2>Outages &amp; Latency</h2>
+          <h2>Latency</h2>
+          <label class="panel-filter">
+            Latency days
+            <select id="latency-days">
+              <option value="1">1</option>
+              <option value="7" selected>7</option>
+              <option value="14">14</option>
+              <option value="30">30</option>
+            </select>
+          </label>
         </div>
-        <h3 class="subsection-title">Outages</h3>
-        <div id="outage-charts" class="chart-grid"></div>
-        <div id="outage-tables" class="table-grid"></div>
-        <h3 class="subsection-title">Probe latency</h3>
+        <p class="panel-note">Line breaks show periods with no probe heartbeat.</p>
         <div id="latency-charts" class="chart-grid"></div>
       </section>
 
       <section class="panel">
         <div class="panel-header">
+          <h2>Event logs</h2>
+          <label class="panel-filter">
+            Log days
+            <select id="table-days">
+              <option value="1">1</option>
+              <option value="7" selected>7</option>
+              <option value="14">14</option>
+              <option value="30">30</option>
+            </select>
+          </label>
+        </div>
+        <div id="history-tables" class="table-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
           <h2>Speedtest History</h2>
+          <label class="panel-filter">
+            Speedtest days
+            <select id="speedtest-days">
+              <option value="1">1</option>
+              <option value="7" selected>7</option>
+              <option value="14">14</option>
+              <option value="30">30</option>
+            </select>
+          </label>
         </div>
         <div id="speedtest-charts" class="chart-grid"></div>
       </section>

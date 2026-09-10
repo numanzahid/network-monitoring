@@ -1,4 +1,8 @@
-import { cleanupOldLatencySamples, cleanupOldNonces } from "./db";
+import {
+  cleanupOldHeartbeatGaps,
+  cleanupOldLatencySamples,
+  cleanupOldNonces,
+} from "./db";
 import { retryPendingNotifications } from "./notify";
 import { evaluateStaleProbes } from "./outages";
 import type { Env } from "./types";
@@ -14,4 +18,8 @@ export async function handleScheduled(env: Env): Promise<void> {
   const latencyCutoff = new Date();
   latencyCutoff.setUTCDate(latencyCutoff.getUTCDate() - 30);
   await cleanupOldLatencySamples(env.DB, latencyCutoff.toISOString());
+
+  const gapCutoff = new Date();
+  gapCutoff.setUTCDate(gapCutoff.getUTCDate() - 30);
+  await cleanupOldHeartbeatGaps(env.DB, gapCutoff.toISOString());
 }

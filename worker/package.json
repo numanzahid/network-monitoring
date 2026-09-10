@@ -4,11 +4,13 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:setup": "npm run db:migrate:local && npm run db:seed",
     "deploy": "wrangler deploy",
     "cf:deploy": "wrangler d1 migrations apply network-monitoring --remote && wrangler deploy",
     "cf:build": "npm run typecheck",
     "db:migrate:local": "wrangler d1 migrations apply network-monitoring --local",
     "db:migrate:remote": "wrangler d1 migrations apply network-monitoring --remote",
+    "db:seed": "node scripts/seed-demo.mjs && wrangler d1 execute network-monitoring --local --file=scripts/seed-demo.sql",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

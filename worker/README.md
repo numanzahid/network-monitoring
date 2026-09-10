@@ -67,11 +67,14 @@ Update `[vars]` in `wrangler.toml`:
 ## Development
 
 ```bash
-npm run db:migrate:local
+npm run dev:setup
 npm run dev
 ```
 
-Open the local dev URL shown by Wrangler.
+Open http://localhost:8787
+
+See `../docs/LOCAL_DEV.md` for UI-only local development with demo data. Probe
+secrets are optional locally.
 
 ## Deploy
 

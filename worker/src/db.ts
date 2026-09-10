@@ -1,5 +1,6 @@
 import type {
   Env,
+  HeartbeatGapRow,
   HeartbeatPayload,
   HeartbeatSpeedtest,
   IspId,
@@ -68,6 +69,7 @@ export async function updateIspStatus(
     httpsLatencyMs: number | null;
     consecutiveFailures: number;
     consecutiveSuccesses: number;
+    presenceFailures: number;
     latestSpeedtestId: number | null;
     updatedAt: string;
   },
@@ -87,6 +89,7 @@ export async function updateIspStatus(
         https_latency_ms = ?,
         consecutive_failures = ?,
         consecutive_successes = ?,
+        presence_failures = ?,
         latest_speedtest_id = ?,
         updated_at = ?
       WHERE isp_id = ?`,
@@ -104,6 +107,7 @@ export async function updateIspStatus(
       fields.httpsLatencyMs,
       fields.consecutiveFailures,
       fields.consecutiveSuccesses,
+      fields.presenceFailures,
       fields.latestSpeedtestId,
       fields.updatedAt,
       ispId,
@@ -409,6 +413,131 @@ export async function cleanupOldLatencySamples(
 ): Promise<void> {
   await db
     .prepare("DELETE FROM latency_samples WHERE recorded_at < ?")
+    .bind(olderThan)
+    .run();
+}
+
+export async function getOpenHeartbeatGap(
+  db: D1Database,
+  ispId: IspId,
+): Promise<HeartbeatGapRow | null> {
+  return db
+    .prepare(
+      `SELECT * FROM heartbeat_gaps
+       WHERE isp_id = ? AND ended_at IS NULL
+       ORDER BY started_at DESC
+       LIMIT 1`,
+    )
+    .bind(ispId)
+    .first<HeartbeatGapRow>();
+}
+
+export async function createHeartbeatGap(
+  db: D1Database,
+  ispId: IspId,
+  startedAt: string,
+  reason = "heartbeat_missing",
+): Promise<number> {
+  const result = await db
+    .prepare(
+      `INSERT INTO heartbeat_gaps (
+        isp_id, started_at, reason, created_at
+      ) VALUES (?, ?, ?, ?)`,
+    )
+    .bind(ispId, startedAt, reason, startedAt)
+    .run();
+  return Number(result.meta.last_row_id);
+}
+
+export async function closeHeartbeatGap(
+  db: D1Database,
+  gapId: number,
+  endedAt: string,
+  durationSeconds: number,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE heartbeat_gaps SET
+        ended_at = ?,
+        duration_seconds = ?
+      WHERE id = ?`,
+    )
+    .bind(endedAt, durationSeconds, gapId)
+    .run();
+}
+
+export async function openHeartbeatGapIfNeeded(
+  db: D1Database,
+  ispId: IspId,
+  startedAt: string,
+  reason = "heartbeat_missing",
+): Promise<void> {
+  const open = await getOpenHeartbeatGap(db, ispId);
+  if (!open) {
+    await createHeartbeatGap(db, ispId, startedAt, reason);
+  }
+}
+
+export async function closeOpenHeartbeatGap(
+  db: D1Database,
+  ispId: IspId,
+  endedAt: string,
+): Promise<void> {
+  const open = await getOpenHeartbeatGap(db, ispId);
+  if (!open) {
+    return;
+  }
+
+  const durationSeconds = Math.max(
+    0,
+    Math.floor((Date.parse(endedAt) - Date.parse(open.started_at)) / 1000),
+  );
+  await closeHeartbeatGap(db, open.id, endedAt, durationSeconds);
+}
+
+export async function listHeartbeatGaps(
+  db: D1Database,
+  ispId: IspId,
+  since: string,
+): Promise<HeartbeatGapRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT * FROM heartbeat_gaps
+       WHERE isp_id = ? AND started_at >= ?
+       ORDER BY started_at DESC`,
+    )
+    .bind(ispId, since)
+    .all<HeartbeatGapRow>();
+  return result.results ?? [];
+}
+
+export async function countMissedHeartbeatMinutes(
+  db: D1Database,
+  ispId: IspId,
+  since: string,
+): Promise<number> {
+  const gaps = await listHeartbeatGaps(db, ispId, since);
+  const sinceMs = Date.parse(since);
+  const nowMs = Date.now();
+  let totalSeconds = 0;
+
+  for (const gap of gaps) {
+    const start = Math.max(Date.parse(gap.started_at), sinceMs);
+    const end = gap.ended_at ? Date.parse(gap.ended_at) : nowMs;
+    if (end > start) {
+      totalSeconds += Math.floor((end - start) / 1000);
+    }
+  }
+
+  return Math.floor(totalSeconds / 60);
+}
+
+export async function cleanupOldHeartbeatGaps(
+  db: D1Database,
+  olderThan: string,
+): Promise<void> {
+  await db
+    .prepare("DELETE FROM heartbeat_gaps WHERE started_at < ?")
     .bind(olderThan)
     .run();
 }

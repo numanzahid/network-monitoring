@@ -1,18 +1,55 @@
-const chartInstances = [];
+const chartRegistry = new Map();
+let resizeListenerBound = false;
 
-function destroyCharts() {
-  for (const chart of chartInstances) {
-    chart.destroy();
-  }
-  chartInstances.length = 0;
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  parsing: false,
+  animation: false,
+  events: ["mousemove", "mouseout", "click", "touchstart", "touchmove", "touchend"],
+};
+
+function scheduleChartResize(chart) {
+  requestAnimationFrame(() => {
+    chart.resize();
+  });
 }
 
-function formatTimeLabel(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
+function bindResizeListener() {
+  if (resizeListenerBound) {
+    return;
   }
-  return date.toLocaleString(undefined, {
+  resizeListenerBound = true;
+  window.addEventListener("resize", () => {
+    for (const chart of chartRegistry.values()) {
+      chart.resize();
+    }
+  });
+}
+
+function destroyAllCharts() {
+  for (const chart of chartRegistry.values()) {
+    chart.destroy();
+  }
+  chartRegistry.clear();
+}
+
+function destroyChartsByType(type) {
+  for (const [key, chart] of chartRegistry.entries()) {
+    if (key.startsWith(`${type}-`)) {
+      chart.destroy();
+      chartRegistry.delete(key);
+    }
+  }
+}
+
+function toTimestamp(isoTime) {
+  const ms = Date.parse(isoTime);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatAxisTime(ms) {
+  return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -20,31 +57,263 @@ function formatTimeLabel(value) {
   });
 }
 
-function outageSegments(outages, days) {
-  const end = Date.now();
-  const start = end - days * 24 * 60 * 60 * 1000;
-  const segments = [];
+function formatTooltipTime(ms) {
+  return new Date(ms).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
-  for (const outage of outages) {
-    const segmentStart = Math.max(Date.parse(outage.started_at), start);
-    const segmentEnd = outage.ended_at
-      ? Math.min(Date.parse(outage.ended_at), end)
-      : end;
-    if (segmentEnd > segmentStart) {
-      segments.push({
-        label: new Date(segmentStart).toLocaleString(),
-        minutes: Math.round((segmentEnd - segmentStart) / 60000),
-      });
+function linePointStyle(color, visibleRadius = 2) {
+  return {
+    pointRadius: (context) => (context.parsed.y === null ? 0 : visibleRadius),
+    pointHoverRadius: (context) => (context.parsed.y === null ? 0 : 5),
+    pointHitRadius: 14,
+    pointBackgroundColor: color,
+    pointBorderColor: color,
+    pointBorderWidth: 0,
+  };
+}
+
+function setChartTooltipActive(chart, elements, position) {
+  chart.setActiveElements(elements);
+  chart.tooltip?.setActiveElements(elements, position);
+  chart.update("none");
+}
+
+function buildChartOptions(yAxisLabel, valueUnit) {
+  return {
+    ...chartOptions,
+    interaction: {
+      mode: "nearest",
+      axis: "x",
+      intersect: false,
+    },
+    onClick(event, elements, chart) {
+      if (!elements.length) {
+        setChartTooltipActive(chart, [], { x: 0, y: 0 });
+        return;
+      }
+      setChartTooltipActive(chart, elements, { x: event.x, y: event.y });
+    },
+    scales: {
+      x: timeScaleOptions(),
+      y: {
+        beginAtZero: true,
+        title: { display: true, text: yAxisLabel, color: "#9ca3af" },
+        ticks: { color: "#9ca3af" },
+        grid: { color: "#1f2937" },
+      },
+    },
+    plugins: {
+      legend: { labels: { color: "#e5e7eb" } },
+      tooltip: {
+        enabled: true,
+        backgroundColor: "rgba(17, 24, 39, 0.96)",
+        titleColor: "#e5e7eb",
+        bodyColor: "#d1d5db",
+        borderColor: "#374151",
+        borderWidth: 1,
+        padding: 10,
+        displayColors: true,
+        callbacks: {
+          title(items) {
+            if (!items.length) {
+              return "";
+            }
+            const x = items[0].parsed.x;
+            return Number.isFinite(x) ? formatTooltipTime(x) : "";
+          },
+          label(context) {
+            const value = context.parsed.y;
+            if (value === null || value === undefined) {
+              return null;
+            }
+            const label = context.dataset.label ?? "";
+            const formatted =
+              typeof value === "number" && !Number.isInteger(value)
+                ? value.toFixed(1)
+                : `${value}`;
+            return `${label}: ${formatted} ${valueUnit}`;
+          },
+          filter(item) {
+            return item.parsed.y !== null && item.parsed.y !== undefined;
+          },
+        },
+      },
+    },
+  };
+}
+
+function pointInGap(isoTime, gaps) {
+  const ms = toTimestamp(isoTime);
+  if (ms === null) {
+    return false;
+  }
+
+  for (const gap of gaps ?? []) {
+    const start = toTimestamp(gap.started_at);
+    const end = gap.ended_at ? toTimestamp(gap.ended_at) : Date.now();
+    if (start !== null && end !== null && ms > start && ms < end) {
+      return true;
     }
   }
 
-  return segments;
+  return false;
 }
 
-function createChartCard(title) {
+function filterPointsOutsideGaps(points, gaps) {
+  if (!gaps?.length) {
+    return points;
+  }
+  return points.filter((point) => !pointInGap(point.recorded_at, gaps));
+}
+
+function buildSeries(points, gaps, valueKey) {
+  const rows = [];
+
+  for (const point of points) {
+    const x = toTimestamp(point.recorded_at);
+    if (x === null) {
+      continue;
+    }
+    rows.push({ x, y: point[valueKey] });
+  }
+
+  for (const gap of gaps ?? []) {
+    const start = toTimestamp(gap.started_at);
+    const end = gap.ended_at ? toTimestamp(gap.ended_at) : Date.now();
+    if (start !== null) {
+      rows.push({ x: start, y: null });
+    }
+    if (end !== null) {
+      rows.push({ x: end, y: null });
+    }
+  }
+
+  return rows.sort((left, right) => left.x - right.x);
+}
+
+function timeScaleOptions() {
+  return {
+    type: "linear",
+    ticks: {
+      color: "#9ca3af",
+      maxRotation: 0,
+      autoSkip: true,
+      callback: (value) => formatAxisTime(value),
+    },
+    grid: { color: "#1f2937" },
+  };
+}
+
+function latencyTitle(history) {
+  const gapCount = history.gaps?.length ?? 0;
+  const gapNote = gapCount ? ` - ${gapCount} silent period${gapCount === 1 ? "" : "s"}` : "";
+  return `${history.label} HTTPS latency${gapNote}`;
+}
+
+function buildLatencyChartData(history) {
+  const rawPoints = history.points ?? [];
+  const gaps = history.gaps ?? [];
+  const points = filterPointsOutsideGaps(rawPoints, gaps);
+
+  if (!points.length) {
+    return null;
+  }
+
+  if (history.granularity === "hour") {
+    return {
+      datasets: [
+        {
+          label: "Low",
+          data: buildSeries(points, gaps, "min_latency_ms"),
+          borderColor: "#22c55e",
+          backgroundColor: "rgba(34, 197, 94, 0.08)",
+          tension: 0,
+          spanGaps: false,
+          ...linePointStyle("#22c55e"),
+        },
+        {
+          label: "High",
+          data: buildSeries(points, gaps, "max_latency_ms"),
+          borderColor: "#ef4444",
+          backgroundColor: "rgba(239, 68, 68, 0.12)",
+          tension: 0,
+          spanGaps: false,
+          ...linePointStyle("#ef4444"),
+        },
+      ],
+    };
+  }
+
+  return {
+    datasets: [
+      {
+        label: "Latency",
+        data: buildSeries(points, gaps, "latency_ms"),
+        borderColor: "#38bdf8",
+        backgroundColor: "rgba(56, 189, 248, 0.15)",
+        fill: false,
+        tension: 0,
+        spanGaps: false,
+        ...linePointStyle("#38bdf8"),
+      },
+    ],
+  };
+}
+
+function buildSpeedtestChartData(history) {
+  const results = history.results ?? [];
+  if (!results.length) {
+    return null;
+  }
+
+  return {
+    datasets: [
+      {
+        label: "Download",
+        data: results
+          .map((result) => ({
+            x: toTimestamp(result.recorded_at),
+            y: result.download_mbps,
+          }))
+          .filter((point) => point.x !== null),
+        borderColor: "#38bdf8",
+        tension: 0,
+        spanGaps: false,
+        ...linePointStyle("#38bdf8", 3),
+      },
+      {
+        label: "Upload",
+        data: results
+          .map((result) => ({
+            x: toTimestamp(result.recorded_at),
+            y: result.upload_mbps,
+          }))
+          .filter((point) => point.x !== null),
+        borderColor: "#a855f7",
+        tension: 0,
+        spanGaps: false,
+        ...linePointStyle("#a855f7", 3),
+      },
+    ],
+  };
+}
+
+function createChartCard(title, chartKey) {
   const card = document.createElement("div");
   card.className = "chart-card";
-  card.innerHTML = `<h3>${title}</h3>`;
+  card.dataset.chartKey = chartKey;
+
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  card.appendChild(heading);
 
   const wrap = document.createElement("div");
   wrap.className = "chart-wrap";
@@ -52,223 +321,183 @@ function createChartCard(title) {
   wrap.appendChild(canvas);
   card.appendChild(wrap);
 
-  return { card, canvas };
-}
-
-function showEmptyState(container, message) {
-  const empty = document.createElement("p");
-  empty.className = "empty-state section-empty";
-  empty.textContent = message;
-  container.appendChild(empty);
+  return { card, canvas, heading };
 }
 
 function showEmptyChart(card, message) {
+  const existingWrap = card.querySelector(".chart-wrap");
+  if (existingWrap) {
+    existingWrap.replaceWith(createEmptyState(message));
+    return;
+  }
+  const empty = card.querySelector(".empty-state");
+  if (empty) {
+    empty.textContent = message;
+  }
+}
+
+function createEmptyState(message) {
   const empty = document.createElement("p");
   empty.className = "empty-state";
   empty.textContent = message;
-  card.querySelector(".chart-wrap").replaceWith(empty);
+  return empty;
 }
 
-export function renderOutageCharts(container, histories) {
-  const hasOutages = histories.some((history) => history.outages.length > 0);
-  if (!hasOutages) {
-    showEmptyState(container, "No outages.");
+function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit) {
+  const existing = chartRegistry.get(chartKey);
+  if (!data) {
+    if (existing) {
+      existing.destroy();
+      chartRegistry.delete(chartKey);
+    }
+    showEmptyChart(
+      card,
+      "No data for this period. Run npm run db:seed in worker/ for local demo data.",
+    );
     return;
   }
 
+  const empty = card.querySelector(".empty-state");
+  if (empty) {
+    const wrap = document.createElement("div");
+    wrap.className = "chart-wrap";
+    const newCanvas = document.createElement("canvas");
+    wrap.appendChild(newCanvas);
+    empty.replaceWith(wrap);
+    canvas = newCanvas;
+  }
+
+  const options = buildChartOptions(yAxisLabel, valueUnit);
+
+  if (existing) {
+    existing.data = data;
+    existing.options = options;
+    existing.update("none");
+    scheduleChartResize(existing);
+    return;
+  }
+
+  const chart = new Chart(canvas, {
+    type: "line",
+    data,
+    options,
+  });
+  chartRegistry.set(chartKey, chart);
+  bindResizeListener();
+  scheduleChartResize(chart);
+}
+
+function mountChartSection(
+  container,
+  histories,
+  type,
+  titleBuilder,
+  dataBuilder,
+  yAxisLabel,
+  valueUnit,
+) {
+  container.innerHTML = "";
+
   for (const history of histories) {
-    const segments = outageSegments(history.outages, history.days);
-    if (!segments.length) {
+    const chartKey = `${type}-${history.isp_id}`;
+    const { card, canvas, heading } = createChartCard(titleBuilder(history), chartKey);
+    container.appendChild(card);
+
+    const data = dataBuilder(history);
+    if (!data) {
+      showEmptyChart(card, "No data for this period. Run npm run db:seed in worker/ for local demo data.");
       continue;
     }
 
-    const { card, canvas } = createChartCard(`${history.label} outage duration`);
-    container.appendChild(card);
-
-    const chart = new Chart(canvas, {
-      type: "bar",
-      data: {
-        labels: segments.map((segment) => segment.label),
-        datasets: [
-          {
-            label: "Outage minutes",
-            data: segments.map((segment) => segment.minutes),
-            backgroundColor: "#dc2626",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            ticks: { color: "#9ca3af", maxRotation: 0, autoSkip: true },
-            grid: { color: "#1f2937" },
-          },
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: "Minutes", color: "#9ca3af" },
-            ticks: { color: "#9ca3af" },
-            grid: { color: "#1f2937" },
-          },
-        },
-        plugins: {
-          legend: { labels: { color: "#e5e7eb" } },
-          title: {
-            display: true,
-            text: `${history.uptime_percent}% uptime`,
-            color: "#e5e7eb",
-          },
-        },
-      },
-    });
-
-    chartInstances.push(chart);
+    heading.textContent = titleBuilder(history);
+    ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit);
   }
 }
 
-export function renderLatencyCharts(container, histories) {
+function updateChartSection(
+  histories,
+  type,
+  titleBuilder,
+  dataBuilder,
+  yAxisLabel,
+  valueUnit,
+) {
   for (const history of histories) {
-    const { card, canvas } = createChartCard(`${history.label} probe HTTPS latency`);
-    container.appendChild(card);
-
-    const points = history.points ?? [];
-    if (!points.length) {
-      showEmptyChart(
-        card,
-        "No latency data.",
-      );
+    const chartKey = `${type}-${history.isp_id}`;
+    const card = document.querySelector(`[data-chart-key="${chartKey}"]`);
+    if (!card) {
       continue;
     }
 
-    const labels = points.map((point) => formatTimeLabel(point.recorded_at));
-    const datasets =
-      history.granularity === "hour"
-        ? [
-            {
-              label: "Low (ms)",
-              data: points.map((point) => point.min_latency_ms),
-              borderColor: "#22c55e",
-              backgroundColor: "rgba(34, 197, 94, 0.08)",
-              tension: 0.2,
-              pointRadius: 2,
-            },
-            {
-              label: "High (ms)",
-              data: points.map((point) => point.max_latency_ms),
-              borderColor: "#ef4444",
-              backgroundColor: "rgba(239, 68, 68, 0.12)",
-              fill: "-1",
-              tension: 0.2,
-              pointRadius: 2,
-            },
-          ]
-        : [
-            {
-              label: "HTTPS latency (ms)",
-              data: points.map((point) => point.latency_ms),
-              borderColor: "#38bdf8",
-              backgroundColor: "rgba(56, 189, 248, 0.15)",
-              fill: true,
-              tension: 0.2,
-              pointRadius: 0,
-            },
-          ];
+    const heading = card.querySelector("h3");
+    if (heading) {
+      heading.textContent = titleBuilder(history);
+    }
 
-    const chart = new Chart(canvas, {
-      type: "line",
-      data: {
-        labels,
-        datasets,
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            ticks: { color: "#9ca3af", maxRotation: 0, autoSkip: true },
-            grid: { color: "#1f2937" },
-          },
-          y: {
-            beginAtZero: true,
-            title: { display: true, text: "Milliseconds", color: "#9ca3af" },
-            ticks: { color: "#9ca3af" },
-            grid: { color: "#1f2937" },
-          },
-        },
-        plugins: {
-          legend: { labels: { color: "#e5e7eb" } },
-        },
-      },
-    });
-
-    chartInstances.push(chart);
+    const canvas = card.querySelector("canvas");
+    const data = dataBuilder(history);
+    ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit);
   }
 }
 
-export function renderSpeedtestCharts(container, histories) {
-  for (const history of histories) {
-    const { card, canvas } = createChartCard(`${history.label} speedtests`);
-    container.appendChild(card);
+export function mountLatencyCharts(container, histories) {
+  mountChartSection(
+    container,
+    histories,
+    "latency",
+    latencyTitle,
+    buildLatencyChartData,
+    "Milliseconds",
+    "ms",
+  );
+}
 
-    const results = history.results ?? [];
-    if (!results.length) {
-      showEmptyChart(card, "No speedtest data.");
-      continue;
-    }
+export function updateLatencyCharts(histories) {
+  updateChartSection(
+    histories,
+    "latency",
+    latencyTitle,
+    buildLatencyChartData,
+    "Milliseconds",
+    "ms",
+  );
+}
 
-    const labels = results.map((result) => formatTimeLabel(result.recorded_at));
-    const download = results.map((result) => result.download_mbps);
-    const upload = results.map((result) => result.upload_mbps);
+export function mountSpeedtestCharts(container, histories) {
+  mountChartSection(
+    container,
+    histories,
+    "speedtest",
+    (history) => `${history.label} speedtests`,
+    buildSpeedtestChartData,
+    "Mbps",
+    "Mbps",
+  );
+}
 
-    const chart = new Chart(canvas, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Download Mbps",
-            data: download,
-            borderColor: "#38bdf8",
-            tension: 0,
-            pointRadius: 4,
-            pointHoverRadius: 5,
-          },
-          {
-            label: "Upload Mbps",
-            data: upload,
-            borderColor: "#a855f7",
-            tension: 0,
-            pointRadius: 4,
-            pointHoverRadius: 5,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            ticks: { color: "#9ca3af", maxRotation: 0, autoSkip: true },
-            grid: { color: "#1f2937" },
-          },
-          y: {
-            beginAtZero: true,
-            ticks: { color: "#9ca3af" },
-            grid: { color: "#1f2937" },
-          },
-        },
-        plugins: {
-          legend: { labels: { color: "#e5e7eb" } },
-        },
-      },
-    });
+export function updateSpeedtestCharts(histories) {
+  updateChartSection(
+    histories,
+    "speedtest",
+    (history) => `${history.label} speedtests`,
+    buildSpeedtestChartData,
+    "Mbps",
+    "Mbps",
+  );
+}
 
-    chartInstances.push(chart);
-  }
+export function resetAllCharts() {
+  destroyAllCharts();
+}
+
+export function resetLatencyCharts() {
+  destroyChartsByType("latency");
+}
+
+export function resetSpeedtestCharts() {
+  destroyChartsByType("speedtest");
 }
 
 export function clearChartContainer(container) {
-  destroyCharts();
   container.innerHTML = "";
 }

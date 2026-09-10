@@ -1,5 +1,6 @@
 import { getIspLabel, isValidIspId } from "../config";
 import {
+  listHeartbeatGaps,
   listLatencyBuckets,
   listLatencySamples,
   listOutages,
@@ -129,6 +130,8 @@ export async function handleLatencyHistory(
   const ispId = ispParam as IspId;
   const since = sinceDate(days);
 
+  const gaps = await listHeartbeatGaps(env.DB, ispId, since);
+
   if (days <= 1) {
     const samples = await listLatencySamples(env.DB, ispId, since);
     return jsonResponse({
@@ -139,6 +142,14 @@ export async function handleLatencyHistory(
       points: samples.map((sample) => ({
         recorded_at: sample.recorded_at,
         latency_ms: sample.https_latency_ms,
+      })),
+      gaps: gaps.map((gap) => ({
+        id: gap.id,
+        started_at: gap.started_at,
+        ended_at: gap.ended_at,
+        duration_seconds: gap.duration_seconds,
+        reason: gap.reason,
+        ongoing: gap.ended_at === null,
       })),
     });
   }
@@ -154,6 +165,14 @@ export async function handleLatencyHistory(
       min_latency_ms: bucket.min_latency_ms,
       max_latency_ms: bucket.max_latency_ms,
       sample_count: bucket.sample_count,
+    })),
+    gaps: gaps.map((gap) => ({
+      id: gap.id,
+      started_at: gap.started_at,
+      ended_at: gap.ended_at,
+      duration_seconds: gap.duration_seconds,
+      reason: gap.reason,
+      ongoing: gap.ended_at === null,
     })),
   });
 }

@@ -1,16 +1,20 @@
 import {
   getFailureThreshold,
+  getHeartbeatDownSeconds,
   getHeartbeatStaleSeconds,
+  getMissingHeartbeatFailureThreshold,
   getSuccessThreshold,
 } from "./config";
 import {
   checksAreHealthy,
+  closeOpenHeartbeatGap,
   closeOutage,
   createOutage,
   failureReason,
   getIspStatus,
   getOpenOutage,
   insertLatencySample,
+  openHeartbeatGapIfNeeded,
   storeSpeedtestFromHeartbeat,
   updateIspStatus,
 } from "./db";
@@ -22,6 +26,8 @@ interface TransitionResult {
   transitionedToUp: boolean;
   outageId: number | null;
 }
+
+type FailureKind = "presence" | "health";
 
 function tracerouteToText(lines: string[] | null | undefined): string | null {
   if (!lines || lines.length === 0) {
@@ -36,6 +42,7 @@ async function applyStateTransition(
   now: string,
   checksHealthy: boolean,
   reason: string,
+  failureKind: FailureKind,
   statusFields: {
     lastSeenAt: string;
     publicIpv4: string | null;
@@ -48,7 +55,8 @@ async function applyStateTransition(
     latestSpeedtestId: number | null;
   },
 ): Promise<TransitionResult> {
-  const failureThreshold = getFailureThreshold(env);
+  const healthFailureThreshold = getFailureThreshold(env);
+  const presenceFailureThreshold = getMissingHeartbeatFailureThreshold(env);
   const successThreshold = getSuccessThreshold(env);
   const current = await getIspStatus(env.DB, ispId);
 
@@ -59,6 +67,7 @@ async function applyStateTransition(
   const wasUp = current.is_up === 1;
   let consecutiveFailures = current.consecutive_failures;
   let consecutiveSuccesses = current.consecutive_successes;
+  let presenceFailures = current.presence_failures ?? 0;
   let isUp = wasUp;
   let transitionedToDown = false;
   let transitionedToUp = false;
@@ -67,14 +76,22 @@ async function applyStateTransition(
   if (checksHealthy) {
     consecutiveSuccesses += 1;
     consecutiveFailures = 0;
+    presenceFailures = 0;
     if (!wasUp && consecutiveSuccesses >= successThreshold) {
       isUp = true;
       transitionedToUp = true;
     }
-  } else {
-    consecutiveFailures += 1;
+  } else if (failureKind === "presence") {
     consecutiveSuccesses = 0;
-    if (wasUp && consecutiveFailures >= failureThreshold) {
+    presenceFailures += 1;
+    if (wasUp && presenceFailures >= presenceFailureThreshold) {
+      isUp = false;
+      transitionedToDown = true;
+    }
+  } else {
+    consecutiveSuccesses = 0;
+    consecutiveFailures += 1;
+    if (wasUp && consecutiveFailures >= healthFailureThreshold) {
       isUp = false;
       transitionedToDown = true;
     }
@@ -97,6 +114,7 @@ async function applyStateTransition(
     httpsLatencyMs: statusFields.httpsLatencyMs,
     consecutiveFailures,
     consecutiveSuccesses,
+    presenceFailures,
     latestSpeedtestId: statusFields.latestSpeedtestId ?? current.latest_speedtest_id,
     updatedAt: now,
   });
@@ -110,7 +128,7 @@ async function applyStateTransition(
         ispId,
         outage,
         reason,
-        now,
+        statusFields.lastSeenAt,
         statusFields.publicIpv4,
       );
     }
@@ -153,9 +171,11 @@ export async function processHeartbeat(
   const healthy = checksAreHealthy(payload.checks);
   const reason = healthy ? "healthy" : failureReason(payload.checks);
 
+  await closeOpenHeartbeatGap(env.DB, ispId, now);
+
   const speedtestId = await storeSpeedtestFromHeartbeat(env.DB, payload, now);
 
-  await applyStateTransition(env, ispId, now, healthy, reason, {
+  await applyStateTransition(env, ispId, now, healthy, reason, "health", {
     lastSeenAt: now,
     publicIpv4: payload.checks.public_ipv4,
     ispName: payload.checks.isp_name ?? null,
@@ -190,6 +210,7 @@ export async function processMissedHeartbeat(
   }
 
   const staleSeconds = getHeartbeatStaleSeconds(env);
+  const downSeconds = getHeartbeatDownSeconds(env);
   const lastSeen = Date.parse(current.last_seen_at);
   if (!Number.isFinite(lastSeen)) {
     return;
@@ -200,12 +221,15 @@ export async function processMissedHeartbeat(
     return;
   }
 
-  if (current.is_up !== 1 && current.consecutive_failures >= getFailureThreshold(env)) {
+  const now = new Date().toISOString();
+  const gapStartedAt = new Date(lastSeen + staleSeconds * 1000).toISOString();
+  await openHeartbeatGapIfNeeded(env.DB, ispId, gapStartedAt, "heartbeat_missing");
+
+  if (ageSeconds < downSeconds) {
     return;
   }
 
-  const now = new Date().toISOString();
-  await applyStateTransition(env, ispId, now, false, "heartbeat_missing", {
+  await applyStateTransition(env, ispId, now, false, "heartbeat_missing", "presence", {
     lastSeenAt: current.last_seen_at,
     publicIpv4: current.public_ipv4,
     ispName: current.isp_name,

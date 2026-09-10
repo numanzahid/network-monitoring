@@ -1,5 +1,6 @@
-PROBE_SECRET_ISP1=replace-with-isp1-probe-secret
-PROBE_SECRET_ISP2=replace-with-isp2-probe-secret
+NOTIFY_ENABLED=false
+PROBE_SECRET_ISP1=optional-for-manual-heartbeat-tests
+PROBE_SECRET_ISP2=optional-for-manual-heartbeat-tests
 NTFY_TOPIC=nm-replace-with-random-hex
 NTFY_AUTH_TOKEN=
 TELEGRAM_BOT_TOKEN=

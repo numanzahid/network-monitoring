@@ -6,16 +6,16 @@ export class NtfyNotifier implements Notifier {
 
   constructor(
     private readonly server: string,
-    private readonly topic: string,
+    private readonly topic: string | undefined,
     private readonly authToken?: string,
   ) {}
 
   isConfigured(): boolean {
-    return this.server.length > 0 && this.topic.length > 0;
+    return Boolean(this.server) && Boolean(this.topic && this.topic.length > 0);
   }
 
   async send(payload: NotificationPayload): Promise<void> {
-    const url = `${this.server.replace(/\/$/, "")}/${encodeURIComponent(this.topic)}`;
+    const url = `${this.server.replace(/\/$/, "")}/${encodeURIComponent(this.topic ?? "")}`;
     const headers: Record<string, string> = {
       "Content-Type": "text/plain; charset=utf-8",
       Title: payload.title,

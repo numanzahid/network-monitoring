@@ -13,6 +13,10 @@ export function getFailureThreshold(env: Env): number {
   return parseIntEnv(env.FAILURE_THRESHOLD, 3);
 }
 
+export function getMissingHeartbeatFailureThreshold(env: Env): number {
+  return parseIntEnv(env.MISSING_HEARTBEAT_FAILURE_THRESHOLD, 1);
+}
+
 export function getSuccessThreshold(env: Env): number {
   return parseIntEnv(env.SUCCESS_THRESHOLD, 2);
 }
@@ -22,7 +26,13 @@ export function getHeartbeatMaxAgeSeconds(env: Env): number {
 }
 
 export function getHeartbeatStaleSeconds(env: Env): number {
-  return parseIntEnv(env.HEARTBEAT_STALE_SECONDS, 180);
+  return parseIntEnv(env.HEARTBEAT_STALE_SECONDS, 120);
+}
+
+export function getHeartbeatDownSeconds(env: Env): number {
+  const staleSeconds = getHeartbeatStaleSeconds(env);
+  const configured = parseIntEnv(env.HEARTBEAT_DOWN_SECONDS, staleSeconds + 60);
+  return Math.max(configured, staleSeconds + 1);
 }
 
 export function getIspLabel(env: Env, ispId: IspId): string {

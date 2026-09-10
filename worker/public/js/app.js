@@ -6,76 +6,188 @@ import {
 } from "./api.js";
 import {
   clearChartContainer,
-  renderLatencyCharts,
-  renderOutageCharts,
-  renderSpeedtestCharts,
+  mountLatencyCharts,
+  mountSpeedtestCharts,
+  resetLatencyCharts,
+  resetSpeedtestCharts,
+  updateLatencyCharts,
 } from "./charts.js";
 import {
+  mountStatusCards,
+  renderHeartbeatGapLog,
   renderOutageLog,
-  renderStatusCards,
   setGeneratedAt,
+  updateStatusCards,
 } from "./render.js";
 
 const statusCards = document.getElementById("status-cards");
 const generatedAt = document.getElementById("generated-at");
-const outageCharts = document.getElementById("outage-charts");
 const latencyCharts = document.getElementById("latency-charts");
-const outageTables = document.getElementById("outage-tables");
+const historyTables = document.getElementById("history-tables");
 const speedtestCharts = document.getElementById("speedtest-charts");
-const historyDays = document.getElementById("history-days");
-const refreshButton = document.getElementById("refresh-button");
+const latencyDays = document.getElementById("latency-days");
+const speedtestDays = document.getElementById("speedtest-days");
+const tableDays = document.getElementById("table-days");
 
 let ispIds = [];
+let latencyChartsMounted = false;
+let speedtestChartsMounted = false;
+let tablesMounted = false;
+let mountedLatencyDayCount = null;
+let mountedSpeedtestDayCount = null;
+let mountedTableDayCount = null;
 
-function selectedDayCount() {
-  return Number(historyDays.value);
+function selectedLatencyDayCount() {
+  return Number(latencyDays.value);
 }
 
-async function loadHistory() {
-  const dayCount = selectedDayCount();
+function selectedSpeedtestDayCount() {
+  return Number(speedtestDays.value);
+}
 
-  clearChartContainer(outageCharts);
+function selectedTableDayCount() {
+  return Number(tableDays.value);
+}
+
+async function fetchLatencyHistories(dayCount) {
+  return Promise.all(ispIds.map((ispId) => getLatencyHistory(ispId, dayCount)));
+}
+
+async function fetchSpeedtestHistories(dayCount) {
+  return Promise.all(ispIds.map((ispId) => getSpeedtestHistory(ispId, dayCount)));
+}
+
+async function fetchTableHistories(dayCount) {
+  const [outageHistories, latencyHistories] = await Promise.all([
+    Promise.all(ispIds.map((ispId) => getOutageHistory(ispId, dayCount))),
+    Promise.all(ispIds.map((ispId) => getLatencyHistory(ispId, dayCount))),
+  ]);
+  return { outageHistories, latencyHistories };
+}
+
+function renderHistoryTables(outageHistories, latencyHistories) {
+  historyTables.innerHTML = "";
+  renderOutageLog(historyTables, outageHistories);
+  renderHeartbeatGapLog(historyTables, latencyHistories);
+}
+
+async function mountLatencyChartsSection(dayCount) {
+  resetLatencyCharts();
   clearChartContainer(latencyCharts);
-  outageTables.innerHTML = "";
+
+  const latencyHistories = await fetchLatencyHistories(dayCount);
+  mountLatencyCharts(latencyCharts, latencyHistories);
+
+  latencyChartsMounted = true;
+  mountedLatencyDayCount = dayCount;
+}
+
+async function mountSpeedtestChartsSection(dayCount) {
+  resetSpeedtestCharts();
   clearChartContainer(speedtestCharts);
 
-  const outageHistories = await Promise.all(
-    ispIds.map((ispId) => getOutageHistory(ispId, dayCount)),
-  );
-  const latencyHistories = await Promise.all(
-    ispIds.map((ispId) => getLatencyHistory(ispId, dayCount)),
-  );
-  const speedtestHistories = await Promise.all(
-    ispIds.map((ispId) => getSpeedtestHistory(ispId, dayCount)),
-  );
+  const speedtestHistories = await fetchSpeedtestHistories(dayCount);
+  mountSpeedtestCharts(speedtestCharts, speedtestHistories);
 
-  renderOutageCharts(outageCharts, outageHistories);
-  renderLatencyCharts(latencyCharts, latencyHistories);
-  renderOutageLog(outageTables, outageHistories);
-  renderSpeedtestCharts(speedtestCharts, speedtestHistories);
+  speedtestChartsMounted = true;
+  mountedSpeedtestDayCount = dayCount;
 }
 
-async function loadAll() {
+async function loadLatencyCharts({ remount = false } = {}) {
+  const dayCount = selectedLatencyDayCount();
+  const needsRemount = remount || !latencyChartsMounted || mountedLatencyDayCount !== dayCount;
+
+  if (needsRemount) {
+    await mountLatencyChartsSection(dayCount);
+    return;
+  }
+
+  const latencyHistories = await fetchLatencyHistories(dayCount);
+  updateLatencyCharts(latencyHistories);
+}
+
+async function loadSpeedtestCharts({ remount = false } = {}) {
+  const dayCount = selectedSpeedtestDayCount();
+  const needsRemount = remount || !speedtestChartsMounted || mountedSpeedtestDayCount !== dayCount;
+
+  if (needsRemount) {
+    await mountSpeedtestChartsSection(dayCount);
+  }
+}
+
+async function mountTables(dayCount) {
+  const { outageHistories, latencyHistories } = await fetchTableHistories(dayCount);
+  renderHistoryTables(outageHistories, latencyHistories);
+  tablesMounted = true;
+  mountedTableDayCount = dayCount;
+}
+
+async function loadTables({ remount = false } = {}) {
+  const dayCount = selectedTableDayCount();
+  const needsRemount = remount || !tablesMounted || mountedTableDayCount !== dayCount;
+
+  if (needsRemount) {
+    await mountTables(dayCount);
+  }
+}
+
+async function refreshLiveData() {
   const status = await getStatus();
   ispIds = status.isps.map((isp) => isp.isp_id);
-  renderStatusCards(statusCards, status);
+
+  if (statusCards.children.length === 0) {
+    mountStatusCards(statusCards, status);
+  } else {
+    updateStatusCards(statusCards, status);
+  }
+
   setGeneratedAt(generatedAt, status.generated_at);
-  await loadHistory();
+  await loadLatencyCharts();
 }
 
-refreshButton.addEventListener("click", () => {
-  loadAll().catch(showError);
+async function loadAll({
+  remountLatencyCharts = false,
+  remountSpeedtestCharts = false,
+  remountTables = false,
+} = {}) {
+  const status = await getStatus();
+  ispIds = status.isps.map((isp) => isp.isp_id);
+
+  if (statusCards.children.length === 0) {
+    mountStatusCards(statusCards, status);
+  } else {
+    updateStatusCards(statusCards, status);
+  }
+
+  setGeneratedAt(generatedAt, status.generated_at);
+  await Promise.all([
+    loadLatencyCharts({ remount: remountLatencyCharts }),
+    loadSpeedtestCharts({ remount: remountSpeedtestCharts }),
+    loadTables({ remount: remountTables }),
+  ]);
+}
+
+latencyDays.addEventListener("change", () => {
+  loadLatencyCharts({ remount: true }).catch(showError);
 });
 
-historyDays.addEventListener("change", () => {
-  loadHistory().catch(showError);
+speedtestDays.addEventListener("change", () => {
+  loadSpeedtestCharts({ remount: true }).catch(showError);
+});
+
+tableDays.addEventListener("change", () => {
+  loadTables({ remount: true }).catch(showError);
 });
 
 function showError(error) {
   generatedAt.textContent = error instanceof Error ? error.message : "Failed to load status";
 }
 
-loadAll().catch(showError);
+loadAll({
+  remountLatencyCharts: true,
+  remountSpeedtestCharts: true,
+  remountTables: true,
+}).catch(showError);
 setInterval(() => {
-  loadAll().catch(showError);
-}, 60000);
+  refreshLiveData().catch(showError);
+}, 15000);

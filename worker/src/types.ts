@@ -6,10 +6,12 @@ export interface Env {
   NOTIFY_ENABLED: string;
   NOTIFIER_CHANNELS: string;
   FAILURE_THRESHOLD: string;
+  MISSING_HEARTBEAT_FAILURE_THRESHOLD: string;
   SUCCESS_THRESHOLD: string;
   PROBE_INTERVAL_SECONDS: string;
   HEARTBEAT_MAX_AGE_SECONDS: string;
   HEARTBEAT_STALE_SECONDS: string;
+  HEARTBEAT_DOWN_SECONDS: string;
   ISP1_LABEL: string;
   ISP2_LABEL: string;
   STATUS_PAGE_URL: string;
@@ -71,8 +73,19 @@ export interface IspStatusRow {
   https_latency_ms: number | null;
   consecutive_failures: number;
   consecutive_successes: number;
+  presence_failures: number;
   latest_speedtest_id: number | null;
   updated_at: string;
+}
+
+export interface HeartbeatGapRow {
+  id: number;
+  isp_id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  reason: string;
+  created_at: string;
 }
 
 export interface OutageEventRow {
