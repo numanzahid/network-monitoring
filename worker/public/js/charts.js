@@ -129,12 +129,28 @@ export function setLatencyScaleLocked(locked) {
   latencyScaleLocked = locked;
 }
 
-function buildChartOptions(yAxisLabel, valueUnit, yAxisMax) {
+function timeWindowBounds(history) {
+  const max = Date.now();
+  if (history.hours != null && history.hours > 0) {
+    return { min: max - history.hours * 60 * 60 * 1000, max };
+  }
+
+  const days = history.days ?? 7;
+  return { min: max - days * 24 * 60 * 60 * 1000, max };
+}
+
+function buildChartOptions(_yAxisLabel, valueUnit, yAxisMax, timeBounds) {
   const yScale = {
     beginAtZero: true,
-    title: { display: true, text: yAxisLabel, color: "#9ca3af" },
-    ticks: { color: "#9ca3af" },
-    grid: { color: "#1f2937" },
+    grace: 0,
+    title: { display: false },
+    border: { display: false },
+    ticks: {
+      color: "#9ca3af",
+      padding: 2,
+      maxTicksLimit: 5,
+    },
+    grid: { color: "#1f2937", drawOnChartArea: true },
   };
   if (yAxisMax !== undefined) {
     yScale.max = yAxisMax;
@@ -142,6 +158,9 @@ function buildChartOptions(yAxisLabel, valueUnit, yAxisMax) {
 
   return {
     ...chartOptions,
+    layout: {
+      padding: 0,
+    },
     interaction: {
       mode: "nearest",
       axis: "x",
@@ -155,11 +174,20 @@ function buildChartOptions(yAxisLabel, valueUnit, yAxisMax) {
       setChartTooltipActive(chart, elements, { x: event.x, y: event.y });
     },
     scales: {
-      x: timeScaleOptions(),
+      x: timeScaleOptions(timeBounds),
       y: yScale,
     },
     plugins: {
-      legend: { labels: { color: "#e5e7eb" } },
+      legend: {
+        align: "start",
+        labels: {
+          color: "#e5e7eb",
+          boxWidth: 10,
+          padding: 6,
+          usePointStyle: true,
+        },
+        padding: 4,
+      },
       tooltip: {
         enabled: true,
         backgroundColor: "rgba(17, 24, 39, 0.96)",
@@ -247,17 +275,37 @@ function buildSeries(points, gaps, valueKey) {
   return rows.sort((left, right) => left.x - right.x);
 }
 
-function timeScaleOptions() {
-  return {
-    type: "linear",
+function timeScaleOptions(timeBounds) {
+  const scale = {
+    type: "time",
+    offset: false,
+    grace: 0,
+    bounds: "ticks",
+    border: { display: false },
+    grid: {
+      color: "#1f2937",
+      offset: false,
+      drawOnChartArea: true,
+    },
     ticks: {
       color: "#9ca3af",
       maxRotation: 0,
       autoSkip: true,
-      callback: (value) => formatAxisTime(value),
+      maxTicksLimit: 7,
+      padding: 0,
+      source: "auto",
     },
-    grid: { color: "#1f2937" },
+    time: {
+      tooltipFormat: "PPpp",
+    },
   };
+
+  if (timeBounds) {
+    scale.min = timeBounds.min;
+    scale.max = timeBounds.max;
+  }
+
+  return scale;
 }
 
 function latencyTitle(history) {
@@ -391,7 +439,16 @@ function createEmptyState(message) {
   return empty;
 }
 
-function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit, yAxisMax) {
+function ensureChart(
+  card,
+  canvas,
+  chartKey,
+  data,
+  yAxisLabel,
+  valueUnit,
+  yAxisMax,
+  timeBounds,
+) {
   const existing = chartRegistry.get(chartKey);
   if (!data) {
     if (existing) {
@@ -415,7 +472,7 @@ function ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit, yAxisM
     canvas = newCanvas;
   }
 
-  const options = buildChartOptions(yAxisLabel, valueUnit, yAxisMax);
+  const options = buildChartOptions(yAxisLabel, valueUnit, yAxisMax, timeBounds);
 
   if (existing) {
     existing.data = data;
@@ -456,7 +513,16 @@ function renderLatencyCharts(container, histories, { mount = false } = {}) {
       }
 
       heading.textContent = latencyTitle(history);
-      ensureChart(card, canvas, chartKey, data, "Milliseconds", "ms", yAxisMax);
+      ensureChart(
+        card,
+        canvas,
+        chartKey,
+        data,
+        "Milliseconds",
+        "ms",
+        yAxisMax,
+        timeWindowBounds(history),
+      );
       continue;
     }
 
@@ -471,7 +537,16 @@ function renderLatencyCharts(container, histories, { mount = false } = {}) {
     }
 
     const canvas = card.querySelector("canvas");
-    ensureChart(card, canvas, chartKey, data, "Milliseconds", "ms", yAxisMax);
+    ensureChart(
+      card,
+      canvas,
+      chartKey,
+      data,
+      "Milliseconds",
+      "ms",
+      yAxisMax,
+      timeWindowBounds(history),
+    );
   }
 }
 
@@ -498,7 +573,16 @@ function mountChartSection(
     }
 
     heading.textContent = titleBuilder(history);
-    ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit);
+    ensureChart(
+      card,
+      canvas,
+      chartKey,
+      data,
+      yAxisLabel,
+      valueUnit,
+      undefined,
+      timeWindowBounds(history),
+    );
   }
 }
 
@@ -524,7 +608,16 @@ function updateChartSection(
 
     const canvas = card.querySelector("canvas");
     const data = dataBuilder(history);
-    ensureChart(card, canvas, chartKey, data, yAxisLabel, valueUnit);
+    ensureChart(
+      card,
+      canvas,
+      chartKey,
+      data,
+      yAxisLabel,
+      valueUnit,
+      undefined,
+      timeWindowBounds(history),
+    );
   }
 }
 

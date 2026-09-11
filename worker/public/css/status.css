@@ -313,8 +313,11 @@ select {
   overflow: hidden;
 }
 
+.chart-wrap > div,
 .chart-wrap canvas {
   display: block;
+  width: 100% !important;
+  height: 100% !important;
   max-width: 100%;
   touch-action: pan-y pinch-zoom;
 }
