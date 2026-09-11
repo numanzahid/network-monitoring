@@ -6,11 +6,13 @@ import {
 } from "./api.js";
 import {
   clearChartContainer,
+  getLatencyPeakCapMs,
   isLatencyScaleLocked,
   mountLatencyCharts,
   mountSpeedtestCharts,
   resetLatencyCharts,
   resetSpeedtestCharts,
+  setLatencyPeakCapMs,
   setLatencyScaleLocked,
   updateLatencyCharts,
 } from "./charts.js";
@@ -31,6 +33,7 @@ const latencyRange = document.getElementById("latency-range");
 const speedtestDays = document.getElementById("speedtest-days");
 const tableDays = document.getElementById("table-days");
 const latencyScaleLock = document.getElementById("latency-scale-lock");
+const latencyPeakCap = document.getElementById("latency-peak-cap");
 
 let ispIds = [];
 let latencyChartsMounted = false;
@@ -176,9 +179,28 @@ function syncLatencyScaleLockButton() {
   latencyScaleLock.textContent = locked ? "Peak scale locked" : "Peak scale auto";
 }
 
+function syncLatencyPeakCapSelect() {
+  const cap = getLatencyPeakCapMs();
+  latencyPeakCap.value = cap === null ? "auto" : String(cap);
+}
+
+function selectedLatencyPeakCapMs() {
+  const value = latencyPeakCap.value;
+  if (value === "auto") {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 latencyScaleLock.addEventListener("click", () => {
   setLatencyScaleLocked(!isLatencyScaleLocked());
   syncLatencyScaleLockButton();
+  loadLatencyCharts().catch(showError);
+});
+
+latencyPeakCap.addEventListener("change", () => {
+  setLatencyPeakCapMs(selectedLatencyPeakCapMs());
   loadLatencyCharts().catch(showError);
 });
 
@@ -199,6 +221,7 @@ function showError(error) {
 }
 
 syncLatencyScaleLockButton();
+syncLatencyPeakCapSelect();
 loadAll({
   remountLatencyCharts: true,
   remountSpeedtestCharts: true,

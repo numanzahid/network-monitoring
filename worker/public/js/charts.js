@@ -1,6 +1,7 @@
 const chartRegistry = new Map();
 let resizeListenerBound = false;
 let latencyScaleLocked = true;
+let latencyPeakCapMs = null;
 
 const chartOptions = {
   responsive: true,
@@ -129,6 +130,30 @@ export function setLatencyScaleLocked(locked) {
   latencyScaleLocked = locked;
 }
 
+export function getLatencyPeakCapMs() {
+  return latencyPeakCapMs;
+}
+
+export function setLatencyPeakCapMs(capMs) {
+  latencyPeakCapMs = capMs;
+}
+
+function latencyAxisMaxForHistory(history, histories) {
+  if (latencyPeakCapMs !== null) {
+    return latencyPeakCapMs;
+  }
+
+  if (latencyScaleLocked) {
+    return sharedLatencyAxisMax(histories);
+  }
+
+  const data = buildLatencyChartData(history);
+  if (!data) {
+    return undefined;
+  }
+  return niceAxisMax(maxYFromChartData(data));
+}
+
 function timeWindowBounds(history) {
   const max = Date.now();
   if (history.hours != null && history.hours > 0) {
@@ -206,7 +231,8 @@ function buildChartOptions(_yAxisLabel, valueUnit, yAxisMax, timeBounds) {
             return Number.isFinite(x) ? formatTooltipTime(x) : "";
           },
           label(context) {
-            const value = context.parsed.y;
+            const rawValue = context.raw?.y;
+            const value = rawValue ?? context.parsed.y;
             if (value === null || value === undefined) {
               return null;
             }
@@ -215,7 +241,11 @@ function buildChartOptions(_yAxisLabel, valueUnit, yAxisMax, timeBounds) {
               typeof value === "number" && !Number.isInteger(value)
                 ? value.toFixed(1)
                 : `${value}`;
-            return `${label}: ${formatted} ${valueUnit}`;
+            const clipped =
+              yAxisMax !== undefined && typeof value === "number" && value > yAxisMax
+                ? " (above scale)"
+                : "";
+            return `${label}: ${formatted} ${valueUnit}${clipped}`;
           },
           filter(item) {
             return item.parsed.y !== null && item.parsed.y !== undefined;
@@ -333,6 +363,7 @@ function buildLatencyChartData(history) {
           backgroundColor: "rgba(34, 197, 94, 0.08)",
           tension: 0,
           spanGaps: false,
+          clip: true,
           ...linePointStyle("#22c55e"),
         },
         {
@@ -342,6 +373,7 @@ function buildLatencyChartData(history) {
           backgroundColor: "rgba(239, 68, 68, 0.12)",
           tension: 0,
           spanGaps: false,
+          clip: true,
           ...linePointStyle("#ef4444"),
         },
       ],
@@ -358,6 +390,7 @@ function buildLatencyChartData(history) {
         fill: false,
         tension: 0,
         spanGaps: false,
+        clip: true,
         ...linePointStyle("#38bdf8"),
       },
     ],
@@ -493,8 +526,6 @@ function ensureChart(
 }
 
 function renderLatencyCharts(container, histories, { mount = false } = {}) {
-  const yAxisMax = latencyScaleLocked ? sharedLatencyAxisMax(histories) : undefined;
-
   if (mount) {
     container.innerHTML = "";
   }
@@ -502,6 +533,7 @@ function renderLatencyCharts(container, histories, { mount = false } = {}) {
   for (const history of histories) {
     const chartKey = `latency-${history.isp_id}`;
     const data = buildLatencyChartData(history);
+    const yAxisMax = latencyAxisMaxForHistory(history, histories);
 
     if (mount) {
       const { card, canvas, heading } = createChartCard(latencyTitle(history), chartKey);

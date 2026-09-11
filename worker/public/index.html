@@ -31,6 +31,21 @@
               Peak scale locked
             </button>
             <label class="panel-filter">
+              Y-axis peak
+              <select id="latency-peak-cap">
+                <option value="auto">Auto</option>
+                <option value="100">100 ms</option>
+                <option value="150">150 ms</option>
+                <option value="200">200 ms</option>
+                <option value="300">300 ms</option>
+                <option value="500">500 ms</option>
+                <option value="750">750 ms</option>
+                <option value="1000">1000 ms</option>
+                <option value="1500">1500 ms</option>
+                <option value="2000">2000 ms</option>
+              </select>
+            </label>
+            <label class="panel-filter">
               Latency range
               <select id="latency-range">
                 <option value="h:1">1 hour</option>
@@ -44,7 +59,10 @@
             </label>
           </div>
         </div>
-        <p class="panel-note">Line breaks show periods with no probe heartbeat.</p>
+        <p class="panel-note">
+          Line breaks show periods with no probe heartbeat. Set Y-axis peak to clip
+          spikes; use peak scale lock to compare both ISPs on the same scale.
+        </p>
         <div id="latency-charts" class="chart-grid"></div>
       </section>
 

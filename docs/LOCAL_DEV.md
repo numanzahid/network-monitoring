@@ -61,6 +61,10 @@ npm run db:seed
 
 Then refresh the browser.
 
+Demo latency data includes ISP1 spikes up to about 5200 ms (ISP2 stays normal).
+Use the **Y-axis peak** control on the Latency panel to test clipping, for example
+500 ms with **Peak scale locked** on.
+
 ## Demo status states
 
 After seeding, both ISPs start **UP**. ISP2 has an older heartbeat (about 60 seconds) so it crosses the **120s stale threshold** roughly one minute later.

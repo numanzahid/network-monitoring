@@ -146,10 +146,44 @@ function speedtestsForIsp(ispId, gaps) {
   return rows;
 }
 
+// ISP1 gets occasional bad spikes so Y-axis peak capping can be tested locally.
+const isp1LatencySpikes = [
+  { ageMs: 30 * MINUTE_MS, latency: 4100 },
+  { ageMs: 75 * MINUTE_MS, latency: 180 },
+  { ageMs: 2 * HOUR_MS, latency: 3900 },
+  { ageMs: 3 * HOUR_MS + 15 * MINUTE_MS, latency: 1200 },
+  { ageMs: 5 * HOUR_MS, latency: 4500 },
+  { ageMs: 1 * DAY_MS, latency: 5200 },
+  { ageMs: 3 * DAY_MS, latency: 3600 },
+];
+
+function applyIsp1LatencySpikes(samples) {
+  const isp1Samples = samples.filter((sample) => sample.isp_id === "isp1");
+
+  for (const spike of isp1LatencySpikes) {
+    const target = now - spike.ageMs;
+    let nearest = null;
+    let nearestDiff = Infinity;
+
+    for (const sample of isp1Samples) {
+      const diff = Math.abs(Date.parse(sample.recorded_at) - target);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearest = sample;
+      }
+    }
+
+    if (nearest) {
+      nearest.https_latency_ms = spike.latency;
+    }
+  }
+}
+
 const latencySamples = [
   ...latencyForIsp("isp1", isp1Gaps),
   ...latencyForIsp("isp2", isp2Gaps),
 ];
+applyIsp1LatencySpikes(latencySamples);
 
 const speedtests = [
   ...speedtestsForIsp("isp1", isp1Gaps),
@@ -272,6 +306,7 @@ console.log(`Latency samples: ${latencySamples.length}`);
 console.log(`Heartbeat gaps: ${heartbeatGaps.length}`);
 console.log(`Outages: ${outages.length}`);
 console.log(`Speedtests: ${speedtests.length}`);
+console.log(`ISP1 latency spikes: ${isp1LatencySpikes.length} (up to 5200 ms)`);
 console.log("");
 console.log("Demo status cards after seed:");
 console.log("  ISP1: UP (heartbeat ~30s ago)");
@@ -283,3 +318,7 @@ console.log("  2. Open page: both ISPs show UP");
 console.log(`  3. Wait ~${STALE_SECONDS - ISP2_HEARTBEAT_AGE_MS / 1000}s: ISP2 shows STALE (page refresh is read-only)`);
 console.log("  4. Trigger cron locally: curl http://localhost:8787/cdn-cgi/local/scheduled");
 console.log("  5. Refresh page: ISP2 shows DOWN");
+console.log("");
+console.log("Test Y-axis peak cap:");
+console.log("  ISP1 has spikes up to 5200 ms; ISP2 stays ~30-50 ms.");
+console.log("  Set Y-axis peak to 300 or 500 ms with peak scale locked on.");
