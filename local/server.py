@@ -22,6 +22,7 @@ WORKER_STATUS_URL = os.environ.get("WORKER_STATUS_URL", "").rstrip("/")
 INTERVAL_SECONDS = max(1, int(os.environ.get("PROBE_INTERVAL_SECONDS", "60")))
 MISSING_BEAT_THRESHOLD = max(1, int(os.environ.get("LOCAL_MISSING_BEAT_THRESHOLD", "1")))
 HEALTH_FAILURE_THRESHOLD = max(1, int(os.environ.get("LOCAL_HEALTH_FAILURE_THRESHOLD", "3")))
+GAP_GRACE_SECONDS = max(5, INTERVAL_SECONDS // 10)
 
 
 def iso_now() -> str:
@@ -127,11 +128,13 @@ class Store:
             if previous:
                 previous_time = parse_iso(previous["probe_ts"])
                 current_time = parse_iso(probe_ts)
-                if previous_time and current_time and (current_time - previous_time).total_seconds() >= INTERVAL_SECONDS * MISSING_BEAT_THRESHOLD:
+                elapsed_seconds = (current_time - previous_time).total_seconds() if previous_time and current_time else 0
+                gap_threshold = INTERVAL_SECONDS * MISSING_BEAT_THRESHOLD + GAP_GRACE_SECONDS
+                if previous_time and current_time and elapsed_seconds > gap_threshold:
                     started = (previous_time + timedelta(seconds=INTERVAL_SECONDS)).isoformat().replace("+00:00", "Z")
                     self.connection.execute(
                         "INSERT OR IGNORE INTO heartbeat_gaps (isp_id, started_at, ended_at, duration_seconds, reason) VALUES (?, ?, ?, ?, ?)",
-                        (isp, started, probe_ts, max(0, int((current_time - previous_time).total_seconds() - INTERVAL_SECONDS)), "heartbeat_missing"),
+                        (isp, started, probe_ts, max(0, int(elapsed_seconds - INTERVAL_SECONDS)), "heartbeat_missing"),
                     )
 
             self.connection.execute(

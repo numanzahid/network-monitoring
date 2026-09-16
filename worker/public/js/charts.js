@@ -265,7 +265,7 @@ function pointInGap(isoTime, gaps) {
   for (const gap of gaps ?? []) {
     const start = toTimestamp(gap.started_at);
     const end = gap.ended_at ? toTimestamp(gap.ended_at) : Date.now();
-    if (start !== null && end !== null && ms > start && ms < end) {
+    if (start !== null && end !== null && end > start && ms > start && ms < end) {
       return true;
     }
   }
@@ -294,10 +294,8 @@ function buildSeries(points, gaps, valueKey) {
   for (const gap of gaps ?? []) {
     const start = toTimestamp(gap.started_at);
     const end = gap.ended_at ? toTimestamp(gap.ended_at) : Date.now();
-    if (start !== null) {
+    if (start !== null && end !== null && end > start) {
       rows.push({ x: start, y: null });
-    }
-    if (end !== null) {
       rows.push({ x: end, y: null });
     }
   }
