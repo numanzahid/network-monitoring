@@ -289,18 +289,24 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                 self.send_json({"generated_at": iso_now(), "isps": [], "status_page_url": "", "history_available": True})
                 return
-            if isp not in {"isp1", "isp2"}:
-                self.send_json({"error": "Invalid isp"}, 400)
-                return
             if parsed.path == "/api/history/outages":
+                if isp not in {"isp1", "isp2"}:
+                    self.send_json({"error": "Invalid isp"}, 400)
+                    return
                 self.send_json(STORE.outage_history(isp, min(365, max(1, int(query.get("days", ["7"])[0])))))
                 return
             if parsed.path == "/api/history/latency":
+                if isp not in {"isp1", "isp2"}:
+                    self.send_json({"error": "Invalid isp"}, 400)
+                    return
                 hours = int(query["hours"][0]) if "hours" in query else None
                 days = int(query["days"][0]) if "days" in query else None
                 self.send_json(STORE.latency_history(isp, min(365, max(1, days)) if days else None, min(24 * 365, max(1, hours)) if hours else None))
                 return
             if parsed.path == "/api/history/speedtests":
+                if isp not in {"isp1", "isp2"}:
+                    self.send_json({"error": "Invalid isp"}, 400)
+                    return
                 self.send_json(STORE.speedtests(isp, min(365, max(1, int(query.get("days", ["7"])[0])))))
                 return
             path = unquote(parsed.path).lstrip("/") or "index.html"
