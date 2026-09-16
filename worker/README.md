@@ -22,7 +22,6 @@ Set `STATUS_PAGE_URL` in the Cloudflare dashboard if notification links are need
 
 - `GET /api/status` returns live state for both ISPs.
 - `POST /api/heartbeat` accepts v2 compact signed heartbeats.
-- Old signed heartbeat payloads remain accepted during the probe rollout.
 - `/api/history/*` returns `410`; history is served by the local history app.
 
 The v2 signature covers:

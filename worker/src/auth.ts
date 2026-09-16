@@ -87,36 +87,6 @@ function validateCompact(value: unknown, env: Env): { ok: true; payload: Compact
   return { ok: true, payload: item as unknown as CompactHeartbeat };
 }
 
-function legacyToCompact(value: Record<string, unknown>): CompactHeartbeat | null {
-  if (!isValidIspId(value.isp_id) || typeof value.ts !== "string" || typeof value.nonce !== "string") return null;
-  const sequence = Date.parse(value.ts);
-  if (!Number.isFinite(sequence)) return null;
-  const checks = value.checks;
-  if (!checks || typeof checks !== "object") return null;
-  const check = checks as Record<string, unknown>;
-  const https = check.https;
-  if (!https || typeof https !== "object") return null;
-  const httpsCheck = https as Record<string, unknown>;
-  const flags = (check.internet === true ? 1 : 0) | (check.dns === true ? 2 : 0) | (httpsCheck.ok === true ? 4 : 0);
-  const metadata: HeartbeatMetadata = {
-    public_ipv4: typeof check.public_ipv4 === "string" ? check.public_ipv4 : null,
-    isp_name: typeof check.isp_name === "string" ? check.isp_name : null,
-    network_asn: typeof check.network_asn === "string" ? check.network_asn : null,
-    traceroute: Array.isArray(check.traceroute) && check.traceroute.every((line) => typeof line === "string") ? check.traceroute : null,
-  };
-  return {
-    v: 2,
-    isp_id: value.isp_id,
-    boot_id: "legacy0",
-    seq: Math.max(1, sequence),
-    ts: value.ts,
-    f: flags,
-    l: typeof httpsCheck.latency_ms === "number" ? httpsCheck.latency_ms : null,
-    m: metadata,
-    s: value.speedtest && typeof value.speedtest === "object" ? value.speedtest as HeartbeatSpeedtest : null,
-  };
-}
-
 function equalBytes(left: Uint8Array | null, right: Uint8Array | null): boolean {
   if (!left || !right || left.length !== right.length) return false;
   let mismatch = 0;
@@ -138,16 +108,10 @@ export async function verifyHeartbeat(env: Env, rawBody: string, authorization: 
   if (!isValidIspId(item.isp_id)) return { ok: false, status: 400, error: "Invalid isp_id" };
   const secret = getProbeSecret(env, item.isp_id);
   if (!secret) return { ok: false, status: 503, error: "Probe secret is not configured" };
-  const compact = item.v === 2 ? validateCompact(parsed, env) : null;
-  if (item.v === 2 && (!compact || !compact.ok)) return { ok: false, status: 400, error: compact?.error ?? "Invalid heartbeat" };
-  if (item.v !== 2) {
-    if (typeof item.ts !== "string" || !Number.isFinite(Date.parse(item.ts)) || Math.abs(Date.now() - Date.parse(item.ts)) / 1000 > getHeartbeatMaxAgeSeconds(env)) {
-      return { ok: false, status: 401, error: "Stale heartbeat timestamp" };
-    }
-  }
-  const payload = compact?.ok ? compact.payload : legacyToCompact(item);
-  if (!payload) return { ok: false, status: 400, error: "Invalid heartbeat payload" };
-  const message = item.v === 2 ? `${payload.ts}.${payload.boot_id}.${payload.seq}.${rawBody}` : `${String(item.ts)}.${String(item.nonce)}.${rawBody}`;
+  const compact = validateCompact(parsed, env);
+  if (!compact.ok) return { ok: false, status: 400, error: compact.error };
+  const payload = compact.payload;
+  const message = `${payload.ts}.${payload.boot_id}.${payload.seq}.${rawBody}`;
   const expected = await sign(secret, message);
   const provided = base64ToBytes(authorization.slice("Bearer ".length).trim());
   if (!equalBytes(provided, base64ToBytes(expected))) return { ok: false, status: 401, error: "Invalid signature" };
