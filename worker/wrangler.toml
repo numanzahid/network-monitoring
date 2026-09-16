@@ -6,27 +6,23 @@ compatibility_date = "2025-02-24"
 directory = "./public"
 binding = "ASSETS"
 
-[[d1_databases]]
-binding = "DB"
-database_name = "network-monitoring"
-database_id = "7ba7074c-5615-47ac-8808-3c13b93c0269"
+[[durable_objects.bindings]]
+name = "ISP_STATE"
+class_name = "IspState"
 
-[triggers]
-crons = ["* * * * *"]
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["IspState"]
 
 [vars]
 NOTIFY_ENABLED = "true"
 NOTIFIER_CHANNELS = "ntfy"
-FAILURE_THRESHOLD = "3"
-MISSING_HEARTBEAT_FAILURE_THRESHOLD = "1"
-SUCCESS_THRESHOLD = "2"
+NOTIFY_AFTER_MISSED_BEATS = "1"
 PROBE_INTERVAL_SECONDS = "60"
 HEARTBEAT_MAX_AGE_SECONDS = "300"
-HEARTBEAT_STALE_SECONDS = "120"
-HEARTBEAT_DOWN_SECONDS = "180"
 ISP1_LABEL = "ISP1"
 ISP2_LABEL = "ISP2"
-STATUS_PAGE_URL = "https://network-monitoring.nzahid.workers.dev"
+STATUS_PAGE_URL = ""
 NTFY_SERVER = "https://ntfy.sh"
 NTFY_PRIORITY_DOWN = "high"
 NTFY_PRIORITY_UP = "default"

@@ -18,7 +18,14 @@ services:
       - .env
     volumes:
       - ./probe.py:/probe/probe.py:ro
+      - ../../common/probe.py:/probe/probe_common.py:ro
       - ./requirements.txt:/probe/requirements.txt:ro
+      - ./state:/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, pathlib; json.loads(pathlib.Path('/state/state.json').read_text())"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     labels:
       wud.watch.digest: "true"
     restart: unless-stopped

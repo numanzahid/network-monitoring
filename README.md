@@ -1,20 +1,20 @@
 # Dual-ISP Network Monitoring
-...
 Local monitoring infrastructure for two independent internet connections.
 Each ISP has its own Speedtest Tracker instance and a dedicated network probe.
 The probe sends authenticated heartbeat data to an external HTTP receiver,
 which may be hosted on any compatible platform.
 
-## Architecture
+## architecture
 
 ```text
-ISP 1 -> dedicated probe -> HTTP heartbeat receiver
-      -> dedicated Speedtest Tracker
+ISP 1 -> dedicated probe -> Cloudflare Worker presence state
+      -> local history app and database
 
-ISP 2 -> dedicated probe -> HTTP heartbeat receiver
-      -> dedicated Speedtest Tracker
+ISP 2 -> dedicated probe -> Cloudflare Worker presence state
+      -> local history app and database
 
-Receiver -> database, outage history, notifications, status page
+Worker -> notifications and live status page
+Local app -> history, charts, and derived outage records
 ```
 
 The local services use Docker Compose and macvlan networking so each ISP
@@ -64,11 +64,11 @@ docker compose --env-file .env config
 docker compose --env-file .env up -d
 ```
 
-## Receiver options
+## services
 
-The heartbeat receiver can be implemented as a Cloudflare Worker, a VPS
-service, a self-hosted API, or another HTTPS endpoint. The local probe only
-requires the endpoint URL and matching authentication secret.
+The Worker is the remote heartbeat receiver. A Durable Object is used per ISP
+for liveness and notification transitions. The local history service uses
+SQLite and is the source of truth for charts and detailed history.
 
 ## Security
 

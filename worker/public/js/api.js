@@ -6,12 +6,26 @@ async function fetchJson(path) {
   return response.json();
 }
 
+async function fetchHistory(path, fallback) {
+  try {
+    return await fetchJson(path);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("(410)")) {
+      return fallback;
+    }
+    throw error;
+  }
+}
+
 export async function getStatus() {
   return fetchJson("/api/status");
 }
 
 export async function getOutageHistory(ispId, days) {
-  return fetchJson(`/api/history/outages?isp=${encodeURIComponent(ispId)}&days=${days}`);
+  return fetchHistory(
+    `/api/history/outages?isp=${encodeURIComponent(ispId)}&days=${days}`,
+    { isp_id: ispId, label: ispId.toUpperCase(), days, uptime_percent: null, outages: [], history_available: false },
+  );
 }
 
 export async function getLatencyHistory(ispId, range) {
@@ -21,9 +35,15 @@ export async function getLatencyHistory(ispId, range) {
   } else {
     params.set("days", String(range).startsWith("d:") ? String(range).slice(2) : String(range));
   }
-  return fetchJson(`/api/history/latency?${params.toString()}`);
+  return fetchHistory(
+    `/api/history/latency?${params.toString()}`,
+    { isp_id: ispId, label: ispId.toUpperCase(), granularity: "sample", points: [], gaps: [], history_available: false },
+  );
 }
 
 export async function getSpeedtestHistory(ispId, days) {
-  return fetchJson(`/api/history/speedtests?isp=${encodeURIComponent(ispId)}&days=${days}`);
+  return fetchHistory(
+    `/api/history/speedtests?isp=${encodeURIComponent(ispId)}&days=${days}`,
+    { isp_id: ispId, label: ispId.toUpperCase(), days, results: [], history_available: false },
+  );
 }

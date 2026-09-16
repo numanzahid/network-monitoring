@@ -1,118 +1,43 @@
-# Cloudflare Worker
+# cloudflare worker
 
-Receives probe heartbeats, stores history in D1, sends notifications, and serves
-the public status page.
+The Worker receives compact signed heartbeats and keeps live presence state in one Durable Object per ISP. It serves the live status API and sends transition notifications. Detailed history is stored by the local history service.
 
-## Features
-
-- Signed heartbeat ingestion for `isp1` and `isp2`
-- Debounced outage detection and recovery events
-- D1 storage for outages and speedtest history
-- Notifications: `ntfy`, `telegram`, `discord`
-- JSON API and status page in `public/`
-
-## Setup
+## setup
 
 ```bash
-cd worker
 npm install
-cp .dev.vars.example .dev.vars
-```
-
-Create the D1 database:
-
-```bash
-npx wrangler d1 create network-monitoring
-```
-
-Copy the returned `database_id` into `wrangler.toml`, then apply migrations:
-
-```bash
-npm run db:migrate:local
-npm run db:migrate:remote
-```
-
-Set secrets:
-
-```bash
-npx wrangler secret put PROBE_SECRET_ISP1
-npx wrangler secret put PROBE_SECRET_ISP2
-npx wrangler secret put NTFY_TOPIC
-npx wrangler secret put NTFY_AUTH_TOKEN
-```
-
-Use a random ntfy topic (not committed to git), for example:
-
-```bash
-printf 'nm-%s' "$(openssl rand -hex 16)"
-```
-
-Subscribe in the ntfy app to `https://ntfy.sh/<that-topic>`.
-
-Optional notification secrets:
-
-```bash
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_CHAT_ID
-npx wrangler secret put DISCORD_WEBHOOK_URL
-```
-
-Update `[vars]` in `wrangler.toml`:
-
-- `STATUS_PAGE_URL`
-- `NTFY_SERVER` (topic is a secret, not in git)
-- `ISP1_LABEL` and `ISP2_LABEL`
-- `NOTIFIER_CHANNELS` (example: `ntfy` or `ntfy,telegram,discord`)
-
-## Development
-
-```bash
-npm run dev:setup
 npm run dev
 ```
 
-Open http://localhost:8787
+For local secrets, create `.dev.vars` with test values. Production secrets belong in the Cloudflare dashboard:
 
-See `../docs/LOCAL_DEV.md` for UI-only local development with demo data. Probe
-secrets are optional locally.
+- `PROBE_SECRET_ISP1`
+- `PROBE_SECRET_ISP2`
+- `NTFY_TOPIC`
+- `NTFY_AUTH_TOKEN` (optional)
 
-## Deploy
+Set `STATUS_PAGE_URL` in the Cloudflare dashboard if notification links are needed.
 
-### Recommended: Cloudflare + GitHub (headless-friendly)
+## api
 
-No `wrangler login` required. See `../docs/DEPLOY_CLOUDFLARE_GITHUB.md`.
+- `GET /api/status` returns live state for both ISPs.
+- `POST /api/heartbeat` accepts v2 compact signed heartbeats.
+- Old signed heartbeat payloads remain accepted during the probe rollout.
+- `/api/history/*` returns `410`; history is served by the local history app.
 
-Summary:
+The v2 signature covers:
 
-- Root directory in Cloudflare Builds: `worker`
-- Build command: `npm ci && npm run cf:build`
-- Deploy command: `npm run cf:deploy`
-- Store secrets in the Cloudflare Worker dashboard
+```text
+{ts}.{boot_id}.{seq}.{raw_json_body}
+```
 
-### Manual deploy (requires Wrangler auth)
+## deploy
+
+The Git connected deployment runs:
 
 ```bash
-npm run typecheck
+npm ci && npm run cf:build
 npm run cf:deploy
 ```
 
-## API
-
-- `GET /api/status`
-- `GET /api/history/outages?isp=isp1&days=30`
-- `GET /api/history/speedtests?isp=isp1&days=14`
-- `POST /api/heartbeat`
-
-See `../docs/HEARTBEAT_API.md` for the heartbeat contract.
-
-## Notifications
-
-Enabled channels are listed in `NOTIFIER_CHANNELS`. Each channel is implemented
-in `src/notify/` behind a shared `Notifier` interface.
-
-Default configuration uses ntfy:
-
-- `NTFY_SERVER=https://ntfy.sh`
-- `NTFY_TOPIC` as a Worker secret (random, unguessable string)
-
-Subscribe on your phone with the ntfy app using `https://ntfy.sh/<NTFY_TOPIC>`.
+`cf:deploy` only deploys the Worker and Durable Object migration. It does not run a D1 migration.

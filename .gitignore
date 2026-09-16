@@ -12,6 +12,8 @@ secrets/
 config/
 data/
 logs/
+state/
+local/data/
 *.db
 *.sqlite
 *.sqlite3

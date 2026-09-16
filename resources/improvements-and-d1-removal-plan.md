@@ -124,3 +124,7 @@ After the cutover window, remove the `DB: D1Database` binding from `worker/src/t
 The D1 removal is complete when both probes can send heartbeats for at least one full retention cycle; current status, stale/down transitions, outage recovery, notification retry, latency charts, speed-test charts, and all history endpoints return the same contract; replayed heartbeats remain rejected; concurrent delivery cannot duplicate state; cleanup runs after a missed schedule; and a tested backup/restore procedure exists for the replacement store.
 
 The implementation should start with the repository interface and the heartbeat transaction. Those two changes address the largest correctness risks and make the eventual D1 removal a storage migration rather than a simultaneous rewrite of the monitoring behavior.
+
+## implementation status
+
+The repository now follows the remote/local split described above. `worker/src/presence.ts` provides one Durable Object state machine per ISP, `common/probe.py` sends signed compact v2 beats and queues local delivery, and `local/server.py` stores history in SQLite and serves the dashboard. D1 bindings, migrations, history queries, and cleanup code were removed from the Worker. The Worker continues to accept the previous signed heartbeat format during rollout.

@@ -1,100 +1,30 @@
-# Local development
+# local development
 
-Run the status page and APIs locally without probes or deploys.
+The Worker is the live remote service. The local history app stores detailed beats and serves the dashboard with local charts.
 
-## Quick start
+## worker
 
 ```bash
 cd worker
 npm install
-npm run dev:setup
+printf '%s\n' 'PROBE_SECRET_ISP1=test-secret-isp1' 'PROBE_SECRET_ISP2=test-secret-isp2' > .dev.vars
 npm run dev
 ```
 
-Open http://localhost:8787
+The local Worker provides `GET /api/status` and accepts signed heartbeat v2 payloads. It does not provide long-range history.
 
-`dev:setup` applies local D1 migrations and loads 7 days of demo data.
+## history app
 
-## What you get locally
-
-- Local Worker on port 8787
-- Local D1 SQLite database (not production)
-- Demo outages, heartbeat gaps, latency samples, and speedtests
-- No probe secrets required for UI work
-
-## Useful commands
+Copy `local/.env.example` to `local/.env`, set a private `LOCAL_INGEST_TOKEN`, set `WORKER_STATUS_URL`, and start:
 
 ```bash
-npm run db:migrate:local   # apply migrations to local D1
-npm run db:seed            # reload demo data
-npm run dev:setup          # migrate + seed
-npm run dev                # start local server
-npm run typecheck          # TypeScript check
+python3 local/server.py
 ```
 
-## Test cron locally
+Open the local service URL for the dashboard. Its database is `local/data/history.sqlite3` by default and is ignored by Git.
 
-Scheduled jobs do not run automatically in `wrangler dev`:
+The probes send compact beat data to the local app when `LOCAL_URL` is configured. If the local app is unavailable, each probe writes an ordered JSON spool under its state directory and retries later. Remote liveness continues independently.
 
-```bash
-curl "http://localhost:8787/cdn-cgi/local/scheduled"
-```
+## v2 behavior
 
-## Optional `.dev.vars`
-
-Only needed if you want to test heartbeat auth or notifications locally:
-
-```env
-NOTIFY_ENABLED=false
-PROBE_SECRET_ISP1=optional-for-manual-heartbeat-tests
-PROBE_SECRET_ISP2=optional-for-manual-heartbeat-tests
-NTFY_TOPIC=optional
-```
-
-For UI-only work, skip `.dev.vars`.
-
-## Reload demo data
-
-```bash
-npm run db:seed
-```
-
-Then refresh the browser.
-
-Demo latency data includes ISP1 spikes up to about 5200 ms (ISP2 stays normal).
-Use the **Y-axis peak** control on the Latency panel to test clipping, for example
-500 ms with **Peak scale locked** on.
-
-## Demo status states
-
-After seeding, both ISPs start **UP**. ISP2 has an older heartbeat (about 60 seconds) so it crosses the **120s stale threshold** roughly one minute later.
-
-Timing (default config):
-
-- **120s** without heartbeat: **STALE** (computed on page load from `last_seen_at`)
-- **180s** without heartbeat: **DOWN** (written by cron via `evaluateStaleProbes`)
-- **Probe silent (24h)**: total minutes the probe was silent in the last 24 hours
-
-Step through **UP -> STALE -> DOWN**:
-
-1. `npm run db:seed` and open http://localhost:8787
-2. Both cards show **UP**
-3. Wait about 60 seconds and refresh: ISP2 shows **STALE**
-4. Wait another ~60 seconds, then trigger cron locally:
-
-   ```bash
-   curl "http://localhost:8787/cdn-cgi/local/scheduled"
-   ```
-
-5. Refresh the page: ISP2 shows **DOWN**
-
-If ISP2 loads **DOWN** immediately, run `npm run db:seed` again to reset leftover local state.
-
-## D1 usage notes
-
-Production optimizations (to stay within the free tier):
-
-- Status page auto-refresh is **60 seconds** (status + latency only)
-- Stale/down evaluation runs on the **cron** only, not on every `/api/status` call
-- Old row cleanup runs **once daily** at 03:00 UTC (not every minute)
-- Multi-day latency charts read pre-aggregated `latency_hourly` rows instead of scanning raw samples
+Each ISP has its own persistent sequence. Flags and latency are sent every interval. Network identity, traceroute, and speed-test blocks are sent when they change or after the metadata keepalive interval. The Worker stores only live state in its per-ISP Durable Object.

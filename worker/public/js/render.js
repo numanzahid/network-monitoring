@@ -143,6 +143,9 @@ function formatHeartbeatAge(seconds, stale) {
 }
 
 function pillTextForState(displayState) {
+  if (displayState === "unknown") {
+    return "UNKNOWN";
+  }
   if (displayState === "stale") {
     return "STALE";
   }

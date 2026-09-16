@@ -1,0 +1,18 @@
+name: network-monitoring-history
+
+services:
+  history:
+    image: python:3.13-slim
+    container_name: network-monitoring-history
+    command: ["python", "/app/server.py"]
+    env_file: .env
+    ports:
+      - "${LOCAL_PORT:-8788}:8788"
+    volumes:
+      - ./server.py:/app/server.py:ro
+      - ../worker/public:/app/public:ro
+      - ./data:/app/data
+    environment:
+      STATIC_DIR: /app/public
+      HISTORY_DB_PATH: /app/data/history.sqlite3
+    restart: unless-stopped

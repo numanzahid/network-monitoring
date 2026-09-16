@@ -490,7 +490,7 @@ function ensureChart(
     }
     showEmptyChart(
       card,
-      "No data for this period. Run npm run db:seed in worker/ for local demo data.",
+      "No local history is available for this period.",
     );
     return;
   }
@@ -540,7 +540,7 @@ function renderLatencyCharts(container, histories, { mount = false } = {}) {
       container.appendChild(card);
 
       if (!data) {
-        showEmptyChart(card, "No data for this period. Run npm run db:seed in worker/ for local demo data.");
+        showEmptyChart(card, "No local history is available for this period.");
         continue;
       }
 
@@ -600,7 +600,7 @@ function mountChartSection(
 
     const data = dataBuilder(history);
     if (!data) {
-      showEmptyChart(card, "No data for this period. Run npm run db:seed in worker/ for local demo data.");
+      showEmptyChart(card, "No local history is available for this period.");
       continue;
     }
 

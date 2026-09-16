@@ -1,43 +1,33 @@
 export type IspId = "isp1" | "isp2";
 
 export interface Env {
-  DB: D1Database;
+  ISP_STATE: DurableObjectNamespace;
   ASSETS: Fetcher;
   NOTIFY_ENABLED: string;
   NOTIFIER_CHANNELS: string;
-  FAILURE_THRESHOLD: string;
-  MISSING_HEARTBEAT_FAILURE_THRESHOLD: string;
-  SUCCESS_THRESHOLD: string;
+  NOTIFY_AFTER_MISSED_BEATS: string;
   PROBE_INTERVAL_SECONDS: string;
   HEARTBEAT_MAX_AGE_SECONDS: string;
-  HEARTBEAT_STALE_SECONDS: string;
-  HEARTBEAT_DOWN_SECONDS: string;
   ISP1_LABEL: string;
   ISP2_LABEL: string;
   STATUS_PAGE_URL: string;
   NTFY_SERVER: string;
-  NTFY_TOPIC: string;
+  NTFY_TOPIC?: string;
+  NTFY_AUTH_TOKEN?: string;
   NTFY_PRIORITY_DOWN: string;
   NTFY_PRIORITY_UP: string;
   PROBE_SECRET_ISP1: string;
   PROBE_SECRET_ISP2: string;
-  NTFY_AUTH_TOKEN?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   DISCORD_WEBHOOK_URL?: string;
 }
 
-export interface HeartbeatChecks {
-  internet: boolean;
-  dns: boolean;
-  https: {
-    ok: boolean;
-    latency_ms: number | null;
-  };
+export interface HeartbeatMetadata {
   public_ipv4: string | null;
-  isp_name?: string | null;
-  network_asn?: string | null;
-  traceroute?: string[] | null;
+  isp_name: string | null;
+  network_asn: string | null;
+  traceroute: string[] | null;
 }
 
 export interface HeartbeatSpeedtest {
@@ -51,76 +41,41 @@ export interface HeartbeatSpeedtest {
   server_name: string | null;
 }
 
-export interface HeartbeatPayload {
+export interface CompactHeartbeat {
+  v: 2;
   isp_id: IspId;
+  boot_id: string;
+  seq: number;
   ts: string;
-  nonce: string;
-  checks: HeartbeatChecks;
-  speedtest?: HeartbeatSpeedtest | null;
+  f: number;
+  l: number | null;
+  m?: HeartbeatMetadata | null;
+  s?: HeartbeatSpeedtest | null;
 }
 
-export interface IspStatusRow {
-  isp_id: string;
-  is_up: number;
-  last_seen_at: string;
-  last_success_at: string | null;
-  public_ipv4: string | null;
-  isp_name: string | null;
-  network_asn: string | null;
-  traceroute: string | null;
-  dns_ok: number | null;
-  https_ok: number | null;
-  https_latency_ms: number | null;
-  consecutive_failures: number;
-  consecutive_successes: number;
-  presence_failures: number;
-  latest_speedtest_id: number | null;
-  updated_at: string;
-}
-
-export interface HeartbeatGapRow {
-  id: number;
-  isp_id: string;
+export interface PresenceNotification {
+  id: string;
+  type: "down" | "up";
   started_at: string;
-  ended_at: string | null;
-  duration_seconds: number | null;
-  reason: string;
-  created_at: string;
+  ended_at?: string;
+  reason?: string;
 }
 
-export interface OutageEventRow {
-  id: number;
-  isp_id: string;
-  started_at: string;
-  ended_at: string | null;
-  duration_seconds: number | null;
-  reason: string | null;
-  notified_down_at: string | null;
-  notified_up_at: string | null;
-  created_at: string;
-}
-
-export interface SpeedtestResultRow {
-  id: number;
-  isp_id: string;
-  source_result_id: number;
-  recorded_at: string;
-  download_mbps: number | null;
-  upload_mbps: number | null;
-  ping_ms: number | null;
-  jitter_ms: number | null;
-  packet_loss: number | null;
-  server_name: string | null;
-  created_at: string;
-}
-
-export type NotificationType = "down" | "recovery";
-
-export interface NotificationPayload {
-  title: string;
-  body: string;
-  type: NotificationType;
-  priority?: "min" | "low" | "default" | "high" | "urgent";
-  tags?: string[];
-  clickUrl?: string;
+export interface PresenceState {
+  isp_id: IspId;
+  boot_id: string | null;
+  last_seq: number;
+  last_beat_probe_at: string | null;
+  last_beat_recv_at: string | null;
+  flags: number | null;
+  latency_ms: number | null;
+  metadata: HeartbeatMetadata | null;
+  latest_speedtest: HeartbeatSpeedtest | null;
+  presence_state: "unknown" | "up" | "down";
+  health_state: "unknown" | "healthy" | "degraded";
+  missed_beats: number;
+  outage_started_at: string | null;
+  transition_number: number;
+  pending_notification: PresenceNotification | null;
+  last_notification_id: string | null;
 }
