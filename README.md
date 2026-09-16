@@ -58,6 +58,8 @@ and payload before storing it.
 
 Copy the relevant `.env.example` to `.env` and provide deployment-specific
 values. Keep `.env`, database files, logs, and other runtime data out of Git.
+See [`docs/SECRETS.md`](docs/SECRETS.md) for the complete secret inventory and
+where each value belongs.
 
 ```bash
 docker compose --env-file .env config
