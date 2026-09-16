@@ -280,7 +280,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/status":
                 if WORKER_STATUS_URL:
-                    request = urllib.request.Request(f"{WORKER_STATUS_URL}/api/status", headers={"Accept": "application/json"})
+                    request = urllib.request.Request(
+                        f"{WORKER_STATUS_URL}/api/status",
+                        headers={"Accept": "application/json", "User-Agent": "monitoring-local/1"},
+                    )
                     try:
                         with urllib.request.urlopen(request, timeout=10) as result:
                             self.send_json(json.loads(result.read()))
