@@ -7,7 +7,7 @@ The Worker is the live remote service. The local history app stores detailed bea
 ```bash
 cd worker
 npm install
-printf '%s\n' 'PROBE_SECRET_ISP1=test-secret-isp1' 'PROBE_SECRET_ISP2=test-secret-isp2' > .dev.vars
+cp .dev.vars.example .dev.vars
 npm run dev
 ```
 

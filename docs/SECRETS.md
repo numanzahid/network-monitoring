@@ -73,7 +73,8 @@ two ISP instances.
 
 ## local Worker development
 
-For local Wrangler development only, use `worker/.dev.vars`:
+For local Wrangler development only, copy `worker/.dev.vars.example` to
+`worker/.dev.vars`:
 
 | Name | Required | Purpose |
 | --- | --- | --- |

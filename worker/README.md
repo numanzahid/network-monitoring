@@ -9,7 +9,8 @@ npm install
 npm run dev
 ```
 
-For local secrets, create `.dev.vars` with test values. Production secrets belong in the Cloudflare dashboard:
+For local development, copy `.dev.vars.example` to `.dev.vars` and keep the
+test values local. Production secrets belong in the Cloudflare dashboard:
 
 - `PROBE_SECRET_ISP1`
 - `PROBE_SECRET_ISP2`

@@ -1,8 +1,4 @@
+# local development values only; use production secrets in Cloudflare
 NOTIFY_ENABLED=false
-PROBE_SECRET_ISP1=optional-for-manual-heartbeat-tests
-PROBE_SECRET_ISP2=optional-for-manual-heartbeat-tests
-NTFY_TOPIC=nm-replace-with-random-hex
-NTFY_AUTH_TOKEN=
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-DISCORD_WEBHOOK_URL=
+PROBE_SECRET_ISP1=local-test-secret-isp1
+PROBE_SECRET_ISP2=local-test-secret-isp2
