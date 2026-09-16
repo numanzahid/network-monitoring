@@ -11,6 +11,8 @@ services:
         "apt-get update -qq && apt-get install -y -qq traceroute && pip install -q -r /probe/requirements.txt && python /probe/probe.py",
       ]
     networks:
+      default:
+      monitoring-local:
       isp-monitor-macvlan:
         ipv4_address: ${PROBE_IP}
         mac_address: ${PROBE_MAC}
@@ -31,5 +33,7 @@ services:
     restart: unless-stopped
 
 networks:
+  monitoring-local:
+    external: true
   isp-monitor-macvlan:
     external: true

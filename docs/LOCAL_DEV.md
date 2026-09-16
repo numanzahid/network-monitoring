@@ -18,10 +18,11 @@ The local Worker provides `GET /api/status` and accepts signed heartbeat v2 payl
 Copy `local/.env.example` to `local/.env`, set a private `LOCAL_INGEST_TOKEN`, set `WORKER_STATUS_URL`, and start:
 
 ```bash
+docker network create monitoring-local
 python3 local/server.py
 ```
 
-Open the local service URL for the dashboard. Its database is `local/data/history.sqlite3` by default and is ignored by Git.
+For Docker Compose, start the history service from `local/` and the probes from their respective directories. The history service stays on the Docker bridge and publishes port `8788`; the probes use the shared `monitoring-local` bridge for history ingestion and their ISP macvlan for measurements. Open `http://<tailscale-ip>:8788` for the dashboard. Its database is `local/data/history.sqlite3` by default and is ignored by Git.
 
 The probes send compact beat data to the local app when `LOCAL_URL` is configured. If the local app is unavailable, each probe writes an ordered JSON spool under its state directory and retries later. Remote liveness continues independently.
 

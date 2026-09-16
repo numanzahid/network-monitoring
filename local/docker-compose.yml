@@ -15,4 +15,13 @@ services:
     environment:
       STATIC_DIR: /app/public
       HISTORY_DB_PATH: /app/data/history.sqlite3
+    networks:
+      default:
+      monitoring-local:
+        aliases:
+          - history
     restart: unless-stopped
+
+networks:
+  monitoring-local:
+    external: true
