@@ -432,7 +432,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(STORE.speedtests(isp, min(365, max(1, int(query.get("days", ["7"])[0])))))
                 return
             path = unquote(parsed.path).lstrip("/") or "index.html"
-            candidate = (STATIC_DIR / path).resolve()
+            local_favicon = path == "favicon-local.svg"
+            candidate = (STATIC_DIR / ("favicon.svg" if local_favicon else path)).resolve()
             if STATIC_DIR not in candidate.parents and candidate != STATIC_DIR:
                 self.send_json({"error": "Not Found"}, 404)
                 return
@@ -440,6 +441,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Not Found"}, 404)
                 return
             content = candidate.read_bytes()
+            if local_favicon:
+                content = content.replace(b'fill="#101820"', b'fill="#4338ca"')
             content_type = "application/octet-stream"
             if candidate.suffix == ".html":
                 content_type = "text/html; charset=utf-8"
@@ -448,13 +451,19 @@ class Handler(BaseHTTPRequestHandler):
                         b"<title>Network Monitoring</title>",
                         b"<title>Local Network Monitoring</title>",
                     )
+                    content = content.replace(
+                        b'href="/favicon.svg"',
+                        b'href="/favicon-local.svg"',
+                    )
+            elif candidate.name == "favicon.svg":
+                content_type = "image/svg+xml"
             elif candidate.suffix == ".js":
                 content_type = "text/javascript; charset=utf-8"
             elif candidate.suffix == ".css":
                 content_type = "text/css; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", content_type)
-            if candidate.name == "index.html":
+            if candidate.name == "index.html" or candidate.name == "favicon.svg":
                 self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
