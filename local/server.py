@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -23,6 +24,17 @@ INTERVAL_SECONDS = max(1, int(os.environ.get("PROBE_INTERVAL_SECONDS", "60")))
 MISSING_BEAT_THRESHOLD = max(1, int(os.environ.get("LOCAL_MISSING_BEAT_THRESHOLD", "1")))
 HEALTH_FAILURE_THRESHOLD = max(1, int(os.environ.get("LOCAL_HEALTH_FAILURE_THRESHOLD", "3")))
 GAP_GRACE_SECONDS = max(5, INTERVAL_SECONDS // 10)
+
+
+def complete_speedtest(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return all(
+        isinstance(value.get(name), (int, float))
+        and math.isfinite(float(value[name]))
+        and float(value[name]) >= 0
+        for name in ("download_mbps", "upload_mbps")
+    )
 
 
 def iso_now() -> str:
@@ -148,7 +160,7 @@ class Store:
                     (isp, probe_ts, json.dumps(metadata, separators=(",", ":"))),
                 )
             speedtest = payload.get("s")
-            if isinstance(speedtest, dict) and isinstance(speedtest.get("result_id"), int):
+            if complete_speedtest(speedtest) and isinstance(speedtest.get("result_id"), int):
                 self.connection.execute(
                     "INSERT OR IGNORE INTO speedtest_results (isp_id, result_id, recorded_at, payload_json) VALUES (?, ?, ?, ?)",
                     (isp, speedtest["result_id"], speedtest.get("recorded_at", probe_ts), json.dumps(speedtest, separators=(",", ":"))),
@@ -238,7 +250,8 @@ class Store:
             oldest = self.connection.execute("SELECT MIN(recorded_at) AS oldest FROM speedtest_results WHERE isp_id = ?", (isp,)).fetchone()["oldest"]
         parsed = parse_iso(oldest.replace(" ", "T") + "Z") if oldest and "T" not in oldest else parse_iso(oldest)
         age_days = 0 if not parsed else max(1, int(((datetime.now(timezone.utc) - parsed).total_seconds() + 86399) // 86400))
-        return {"isp_id": isp, "label": isp.upper(), "days": days, "available_days": age_days, "results": [json.loads(row["payload_json"]) for row in rows], "history_available": True}
+        results = [json.loads(row["payload_json"]) for row in rows]
+        return {"isp_id": isp, "label": isp.upper(), "days": days, "available_days": age_days, "results": [result for result in results if complete_speedtest(result)], "history_available": True}
 
     def status(self) -> dict:
         isps = []
@@ -255,6 +268,8 @@ class Store:
             is_up = age is not None and age < INTERVAL_SECONDS * MISSING_BEAT_THRESHOLD + GAP_GRACE_SECONDS
             flags = beat["flags"]
             speedtest = json.loads(speedtest_row["payload_json"]) if speedtest_row else None
+            if not complete_speedtest(speedtest):
+                speedtest = None
             isps.append({
                 "isp_id": isp,
                 "label": isp.upper(),

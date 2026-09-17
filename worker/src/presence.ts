@@ -1,5 +1,5 @@
 import { getIspLabel, getMissedBeatThreshold, getProbeIntervalSeconds, getRemoteHistoryHours, getRemoteSpeedtestHistoryDays, isNotifyEnabled } from "./config";
-import type { CompactHeartbeat, Env, HeartbeatMetadata, PresenceNotification, PresenceState } from "./types";
+import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, PresenceNotification, PresenceState } from "./types";
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
@@ -7,6 +7,12 @@ function response(body: unknown, status = 200): Response {
 
 function defaultState(ispId: CompactHeartbeat["isp_id"]): PresenceState {
   return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null };
+}
+
+function completeSpeedtest(value: HeartbeatSpeedtest | null | undefined): value is HeartbeatSpeedtest {
+  return value !== null && value !== undefined
+    && typeof value.download_mbps === "number" && Number.isFinite(value.download_mbps) && value.download_mbps >= 0
+    && typeof value.upload_mbps === "number" && Number.isFinite(value.upload_mbps) && value.upload_mbps >= 0;
 }
 
 function nowIso(): string { return new Date().toISOString(); }
@@ -236,7 +242,7 @@ export class IspState {
     current.missed_beats = 0;
     current.health_state = healthy(payload.f) ? "healthy" : "degraded";
     if (payload.m !== undefined) current.metadata = payload.m === null ? null : payload.m as HeartbeatMetadata;
-    if (payload.s !== undefined) current.latest_speedtest = payload.s ?? null;
+    if (completeSpeedtest(payload.s)) current.latest_speedtest = payload.s;
     current.presence_state = "up";
     this.recordHeartbeat(payload, receivedAt);
     if (wasDown) {
@@ -268,7 +274,7 @@ export class IspState {
       payload.f,
       payload.l,
     );
-    if (payload.s !== undefined && payload.s !== null) {
+    if (completeSpeedtest(payload.s)) {
       this.state.storage.sql.exec(
         "INSERT OR IGNORE INTO remote_speedtests (result_id, recorded_at, received_at, payload_json) VALUES (?, ?, ?, ?)",
         payload.s.result_id,
@@ -354,7 +360,7 @@ export class IspState {
     const ispId = this.ispId(url);
     const rows = this.state.storage.sql.exec<RemoteSpeedtestRow>("SELECT payload_json FROM remote_speedtests WHERE received_at >= ? ORDER BY recorded_at ASC", since).toArray();
     const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(received_at) AS oldest FROM remote_speedtests WHERE received_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
-    const results = rows.map((row) => JSON.parse(row.payload_json));
+    const results = rows.map((row) => JSON.parse(row.payload_json) as HeartbeatSpeedtest).filter((result) => completeSpeedtest(result));
     const availableDays = oldest ? Math.min(retentionDays, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 86400000))) : 0;
     return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days: requestedDays, results, history_available: true, retention_days: retentionDays, available_days: availableDays });
   }
@@ -405,7 +411,7 @@ export class IspState {
       missed_heartbeat_minutes_24h: 0,
       open_heartbeat_gap: !isUp && state.last_beat_recv_at ? { started_at: state.outage_started_at ?? state.last_beat_recv_at } : null,
       ongoing_outage: !isUp && state.outage_started_at ? { started_at: state.outage_started_at, reason: "missed_heartbeat" } : null,
-      latest_speedtest: state.latest_speedtest,
+      latest_speedtest: completeSpeedtest(state.latest_speedtest) ? state.latest_speedtest : null,
       notify_state: state.pending_notifications.length ? "pending" : "clear",
     };
   }

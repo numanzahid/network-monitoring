@@ -10,6 +10,10 @@ unavailable while keeping long-term storage local.
 - Speedtest summaries: `REMOTE_SPEEDTEST_HISTORY_DAYS`, 30 days by default.
 - Remote outage events: 30 days.
 
+Speedtest history accepts only results with numeric download and upload values.
+The chart treats valid results more than three hours apart as a broken series;
+the trackers are scheduled every two hours.
+
 Heartbeat history contains the probe timestamp, Worker receive timestamp,
 check flags, and HTTPS latency. Speedtest history contains only the compact
 speedtest summary already sent by the probe. Network identity, traceroute, and

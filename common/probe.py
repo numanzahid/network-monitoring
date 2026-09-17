@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import ipaddress
+import math
 import json
 import os
 import shutil
@@ -126,6 +127,15 @@ def bits_to_mbps(value: Any) -> float | None:
     return round(number, 2)
 
 
+def complete_speedtest(value: dict[str, Any]) -> bool:
+    return all(
+        isinstance(value.get(name), (int, float))
+        and math.isfinite(float(value[name]))
+        and float(value[name]) >= 0
+        for name in ("download_mbps", "upload_mbps")
+    )
+
+
 def fetch_latest_speedtest(tracker_ip: str, api_token: str, timeout: float) -> dict[str, Any] | None:
     try:
         result = requests.get(f"http://{tracker_ip}/api/v1/results", headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"}, params={"per_page": 1, "sort": "-created_at"}, timeout=timeout)
@@ -139,7 +149,8 @@ def fetch_latest_speedtest(tracker_ip: str, api_token: str, timeout: float) -> d
         if result_id is None:
             return None
         server = row.get("server")
-        return {"result_id": int(result_id), "recorded_at": str(row.get("created_at") or row.get("updated_at") or utc_now()), "download_mbps": bits_to_mbps(row.get("download")), "upload_mbps": bits_to_mbps(row.get("upload")), "ping_ms": row.get("ping"), "jitter_ms": row.get("jitter"), "packet_loss": row.get("packet_loss"), "server_name": server.get("name") if isinstance(server, dict) else None}
+        speedtest = {"result_id": int(result_id), "recorded_at": str(row.get("created_at") or row.get("updated_at") or utc_now()), "download_mbps": bits_to_mbps(row.get("download")), "upload_mbps": bits_to_mbps(row.get("upload")), "ping_ms": row.get("ping"), "jitter_ms": row.get("jitter"), "packet_loss": row.get("packet_loss"), "server_name": server.get("name") if isinstance(server, dict) else None}
+        return speedtest if complete_speedtest(speedtest) else None
     except (requests.RequestException, ValueError, TypeError):
         return None
 

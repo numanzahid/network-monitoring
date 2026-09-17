@@ -2,6 +2,7 @@ const chartRegistry = new Map();
 let resizeListenerBound = false;
 let latencyScaleLocked = true;
 let latencyPeakCapMs = null;
+const SPEEDTEST_GAP_THRESHOLD_MS = 3 * 60 * 60 * 1000;
 
 const chartOptions = {
   responsive: true,
@@ -396,21 +397,33 @@ function buildLatencyChartData(history) {
 }
 
 function buildSpeedtestChartData(history) {
-  const results = history.results ?? [];
+  const results = (history.results ?? [])
+    .filter((result) => Number.isFinite(Number(result.download_mbps)) && Number.isFinite(Number(result.upload_mbps)))
+    .map((result) => ({ ...result, x: toTimestamp(result.recorded_at) }))
+    .filter((result) => result.x !== null)
+    .sort((left, right) => left.x - right.x);
   if (!results.length) {
     return null;
+  }
+
+  function series(valueKey) {
+    const points = [];
+    let previousX = null;
+    for (const result of results) {
+      if (previousX !== null && result.x - previousX > SPEEDTEST_GAP_THRESHOLD_MS) {
+        points.push({ x: result.x - 1, y: null });
+      }
+      points.push({ x: result.x, y: result[valueKey] });
+      previousX = result.x;
+    }
+    return points;
   }
 
   return {
     datasets: [
       {
         label: "Download",
-        data: results
-          .map((result) => ({
-            x: toTimestamp(result.recorded_at),
-            y: result.download_mbps,
-          }))
-          .filter((point) => point.x !== null),
+        data: series("download_mbps"),
         borderColor: "#38bdf8",
         tension: 0,
         spanGaps: false,
@@ -418,12 +431,7 @@ function buildSpeedtestChartData(history) {
       },
       {
         label: "Upload",
-        data: results
-          .map((result) => ({
-            x: toTimestamp(result.recorded_at),
-            y: result.upload_mbps,
-          }))
-          .filter((point) => point.x !== null),
+        data: series("upload_mbps"),
         borderColor: "#a855f7",
         tension: 0,
         spanGaps: false,
