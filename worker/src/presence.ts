@@ -534,6 +534,20 @@ export class IspState {
     return latest;
   }
 
+  private probeSilentSeconds24h(): number {
+    const now = Date.now();
+    const since = now - 24 * 3600 * 1000;
+    const rows = this.state.storage.sql.exec<RemoteOutageRow>("SELECT id, started_at, ended_at, duration_seconds, reason FROM remote_outages WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?)", nowIso(), new Date(since).toISOString()).toArray()
+      .filter((row) => isMeaningfulOutage(row, getProbeIntervalSeconds(this.env)));
+    let total = 0;
+    for (const row of rows) {
+      const start = Math.max(since, Date.parse(row.started_at));
+      const end = Math.min(now, row.ended_at ? Date.parse(row.ended_at) : now);
+      if (Number.isFinite(start) && Number.isFinite(end)) total += Math.max(0, Math.floor((end - start) / 1000));
+    }
+    return total;
+  }
+
   private async publicStatus(state: PresenceState): Promise<Record<string, unknown>> {
     const lastSeenMs = state.last_beat_recv_at ? Date.parse(state.last_beat_recv_at) : NaN;
     const age = Number.isFinite(lastSeenMs) ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
@@ -561,7 +575,7 @@ export class IspState {
       consecutive_failures: state.health_state === "degraded" ? 1 : 0,
       consecutive_successes: state.health_state === "healthy" ? 1 : 0,
       presence_failures: missed ?? 0,
-      missed_heartbeat_minutes_24h: 0,
+      probe_silent_seconds_24h: this.probeSilentSeconds24h(),
       open_heartbeat_gap: !isUp && state.last_beat_recv_at ? { started_at: state.outage_started_at ?? state.last_beat_recv_at } : null,
       ongoing_outage: !isUp && state.outage_started_at ? { started_at: state.outage_started_at, reason: "missed_heartbeat" } : null,
       latest_speedtest: this.latestSpeedtest(state),

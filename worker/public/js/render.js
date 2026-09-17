@@ -64,6 +64,16 @@ function formatProvider(isp) {
   return "-";
 }
 
+function formatProbeSilence(seconds) {
+  if (seconds === null || seconds === undefined) {
+    return "-";
+  }
+  if (seconds < 60) {
+    return "<1 min";
+  }
+  return `${Math.floor(seconds / 60)} min`;
+}
+
 function renderTracerouteIp(publicIpv4, lines) {
   const hasTraceroute = lines && lines.length > 0;
   const hasIpv4 = publicIpv4 && publicIpv4.length > 0;
@@ -226,7 +236,7 @@ function applyStatusCard(card, isp) {
   heartbeat.textContent = formatHeartbeatAge(isp.heartbeat_age_seconds, isp.heartbeat_stale);
   heartbeat.className = isp.heartbeat_stale ? "text-stale" : "";
 
-  card.querySelector('[data-field="missed"]').textContent = `${isp.missed_heartbeat_minutes_24h ?? 0} min`;
+  card.querySelector('[data-field="missed"]').textContent = formatProbeSilence(isp.probe_silent_seconds_24h);
   card.querySelector('[data-field="provider"]').textContent = formatProvider(isp);
   card.querySelector('[data-field="https-latency"]').textContent = `${isp.checks.https_latency_ms ?? "-"} ms`;
   card.querySelector('[data-field="speedtest"]').innerHTML = formatSpeedtestCompact(

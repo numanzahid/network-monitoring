@@ -263,11 +263,15 @@ class Store:
 
     def status(self) -> dict:
         isps = []
+        since = datetime.now(timezone.utc) - timedelta(days=1)
+        since_iso = since.isoformat().replace("+00:00", "Z")
+        now = datetime.now(timezone.utc)
         for isp in ("isp1", "isp2"):
             with self.lock:
                 beat = self.connection.execute("SELECT * FROM beats WHERE isp_id = ? ORDER BY received_at DESC LIMIT 1", (isp,)).fetchone()
                 metadata_row = self.connection.execute("SELECT metadata_json FROM metadata_events WHERE isp_id = ? ORDER BY recorded_at DESC LIMIT 1", (isp,)).fetchone()
                 speedtest_row = self.connection.execute("SELECT payload_json FROM speedtest_results WHERE isp_id = ? ORDER BY recorded_at DESC LIMIT 1", (isp,)).fetchone()
+                gaps = self.connection.execute("SELECT started_at, ended_at, duration_seconds FROM heartbeat_gaps WHERE isp_id = ? AND started_at <= ? AND ended_at >= ? AND duration_seconds > ?", (isp, iso_now(), since_iso, INTERVAL_SECONDS * (MISSING_BEAT_THRESHOLD - 1) + GAP_GRACE_SECONDS)).fetchall()
             if beat is None:
                 continue
             metadata = json.loads(metadata_row["metadata_json"]) if metadata_row else {}
@@ -278,6 +282,11 @@ class Store:
             speedtest = json.loads(speedtest_row["payload_json"]) if speedtest_row else None
             if not complete_speedtest(speedtest):
                 speedtest = None
+            probe_silent_seconds = 0
+            for gap in gaps:
+                start = max(parse_iso(gap["started_at"]) or since, since)
+                end = min(parse_iso(gap["ended_at"]) or now, now)
+                probe_silent_seconds += max(0, int((end - start).total_seconds()))
             isps.append({
                 "isp_id": isp,
                 "label": isp.upper(),
@@ -289,7 +298,7 @@ class Store:
                 "heartbeat_age_seconds": age,
                 "heartbeat_stale": age is None or age >= INTERVAL_SECONDS,
                 "missed_beats": 0 if age is None else age // INTERVAL_SECONDS,
-                "missed_heartbeat_minutes_24h": 0,
+                "probe_silent_seconds_24h": probe_silent_seconds,
                 "checks": {
                     "internet_ok": bool(flags & 1),
                     "dns_ok": bool(flags & 2),
