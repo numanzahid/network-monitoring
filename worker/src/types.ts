@@ -95,5 +95,6 @@ export interface PresenceState {
   pending_notifications: PresenceNotification[];
   pending_notification?: PresenceNotification | null;
   last_notification_id: string | null;
+  last_notification_error: string | null;
   history_sync: HistorySyncState | null;
 }

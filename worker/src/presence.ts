@@ -6,7 +6,7 @@ function response(body: unknown, status = 200): Response {
 }
 
 function defaultState(ispId: CompactHeartbeat["isp_id"]): PresenceState {
-  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null, history_sync: null };
+  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null, last_notification_error: null, history_sync: null };
 }
 
 function completeSpeedtest(value: HeartbeatSpeedtest | null | undefined): value is HeartbeatSpeedtest {
@@ -59,6 +59,11 @@ interface NotificationPayload {
   clickUrl?: string;
 }
 
+interface NotificationResult {
+  ok: boolean;
+  error?: string;
+}
+
 interface RemoteBeatRow {
   [key: string]: string | number | null;
   probe_ts: string;
@@ -81,21 +86,21 @@ interface RemoteOutageRow {
   reason: string;
 }
 
-async function sendNtfy(env: Env, payload: NotificationPayload): Promise<boolean> {
-  if (!env.NTFY_TOPIC) return false;
+async function sendNtfy(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
+  if (!env.NTFY_TOPIC) return { ok: false, error: "ntfy_topic_missing" };
   const headers = new Headers({ "Content-Type": "text/plain; charset=utf-8", Title: payload.title, Priority: payload.priority, Tags: payload.tags });
   if (payload.clickUrl) headers.set("Click", payload.clickUrl);
   if (env.NTFY_AUTH_TOKEN) headers.set("Authorization", `Bearer ${env.NTFY_AUTH_TOKEN}`);
   try {
     const result = await fetch(`${env.NTFY_SERVER.replace(/\/$/, "")}/${encodeURIComponent(env.NTFY_TOPIC)}`, { method: "POST", headers, body: payload.body, signal: AbortSignal.timeout(5000) });
-    return result.ok;
+    return result.ok ? { ok: true } : { ok: false, error: `ntfy_http_${result.status}` };
   } catch {
-    return false;
+    return { ok: false, error: "ntfy_fetch_failed" };
   }
 }
 
-async function sendTelegram(env: Env, payload: NotificationPayload): Promise<boolean> {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return false;
+async function sendTelegram(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return { ok: false, error: "telegram_config_missing" };
   try {
     const result = await fetch(`https://api.telegram.org/bot${encodeURIComponent(env.TELEGRAM_BOT_TOKEN)}/sendMessage`, {
       method: "POST",
@@ -103,14 +108,14 @@ async function sendTelegram(env: Env, payload: NotificationPayload): Promise<boo
       body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `${payload.title}\n\n${payload.body}` }),
       signal: AbortSignal.timeout(5000),
     });
-    return result.ok;
+    return result.ok ? { ok: true } : { ok: false, error: `telegram_http_${result.status}` };
   } catch {
-    return false;
+    return { ok: false, error: "telegram_fetch_failed" };
   }
 }
 
-async function sendDiscord(env: Env, payload: NotificationPayload): Promise<boolean> {
-  if (!env.DISCORD_WEBHOOK_URL) return false;
+async function sendDiscord(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
+  if (!env.DISCORD_WEBHOOK_URL) return { ok: false, error: "discord_config_missing" };
   try {
     const result = await fetch(env.DISCORD_WEBHOOK_URL, {
       method: "POST",
@@ -118,23 +123,23 @@ async function sendDiscord(env: Env, payload: NotificationPayload): Promise<bool
       body: JSON.stringify({ content: `**${payload.title}**\n${payload.body}` }),
       signal: AbortSignal.timeout(5000),
     });
-    return result.ok;
+    return result.ok ? { ok: true } : { ok: false, error: `discord_http_${result.status}` };
   } catch {
-    return false;
+    return { ok: false, error: "discord_fetch_failed" };
   }
 }
 
-async function sendNotification(env: Env, payload: NotificationPayload): Promise<boolean> {
-  if (!isNotifyEnabled(env)) return true;
+async function sendNotification(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
+  if (!isNotifyEnabled(env)) return { ok: true };
   const channels = (env.NOTIFIER_CHANNELS || "ntfy").split(",").map((channel) => channel.trim().toLowerCase()).filter(Boolean);
-  if (!channels.length) return true;
+  if (!channels.length) return { ok: true };
   const results = await Promise.all(channels.map((channel) => {
     if (channel === "ntfy") return sendNtfy(env, payload);
     if (channel === "telegram") return sendTelegram(env, payload);
     if (channel === "discord") return sendDiscord(env, payload);
-    return Promise.resolve(true);
+    return Promise.resolve({ ok: true });
   }));
-  return results.every(Boolean);
+  return results.find((result) => !result.ok) ?? { ok: true };
 }
 
 async function deliverPending(state: PresenceState, env: Env): Promise<PresenceState> {
@@ -149,8 +154,12 @@ async function deliverPending(state: PresenceState, env: Env): Promise<PresenceS
     const body = isDown
       ? `Remote presence missed ${missedBeats} beat${missedBeats === 1 ? "" : "s"}.\nLast receive: ${lastReceive ?? "unknown"}\nLast latency: ${latency === null ? "unknown" : `${latency} ms`}`
       : `Remote presence recovered after ${duration}.\nLast latency: ${latency === null ? "unknown" : `${latency} ms`}`;
-    const sent = await sendNotification(env, { title: `${isDown ? "[DOWN]" : "[UP]"} ${label}`, body, priority: isDown ? env.NTFY_PRIORITY_DOWN : env.NTFY_PRIORITY_UP, tags: `${state.isp_id},${isDown ? "warning" : "white_check_mark"}`, clickUrl: env.STATUS_PAGE_URL || undefined });
-    if (!sent) break;
+    const delivery = await sendNotification(env, { title: `${isDown ? "[DOWN]" : "[UP]"} ${label}`, body, priority: isDown ? env.NTFY_PRIORITY_DOWN : env.NTFY_PRIORITY_UP, tags: `${state.isp_id},${isDown ? "warning" : "white_check_mark"}`, clickUrl: env.STATUS_PAGE_URL || undefined });
+    if (!delivery.ok) {
+      state.last_notification_error = delivery.error ?? "notification_failed";
+      break;
+    }
+    state.last_notification_error = null;
     state.last_notification_id = pending.id;
     state.pending_notifications.shift();
   }
@@ -243,6 +252,7 @@ export class IspState {
         ? stored.pending_notifications
         : legacyPending ? [legacyPending] : [];
       stored.pending_notification = null;
+      if (stored.last_notification_error === undefined) stored.last_notification_error = null;
       if (stored.history_sync === undefined) stored.history_sync = null;
       return stored;
     }
@@ -505,6 +515,7 @@ export class IspState {
       ongoing_outage: !isUp && state.outage_started_at ? { started_at: state.outage_started_at, reason: "missed_heartbeat" } : null,
       latest_speedtest: this.latestSpeedtest(state),
       notify_state: state.pending_notifications.length ? "pending" : "clear",
+      notification_error: state.last_notification_error,
     };
   }
 }
