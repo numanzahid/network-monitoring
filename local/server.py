@@ -449,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
                 if candidate.name == "index.html":
                     content = content.replace(
                         b"<title>Network Monitoring</title>",
-                        b"<title>Local Network Monitoring</title>",
+                        b"<title>[Lan] Network Monitoring</title>",
                     )
                     content = content.replace(
                         b'href="/favicon.svg"',
