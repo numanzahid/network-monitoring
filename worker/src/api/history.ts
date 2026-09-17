@@ -11,6 +11,7 @@ export async function handleHistory(request: Request, env: Env): Promise<Respons
   const isp = url.searchParams.get("isp");
   if (!isValidIspId(isp)) return jsonResponse({ error: "Invalid isp" }, 400);
   const id = env.ISP_STATE.idFromName(isp);
-  const response = await env.ISP_STATE.get(id).fetch(`https://state.internal${url.pathname}${url.search}`);
+  const statePath = url.pathname.replace(/^\/api/, "");
+  const response = await env.ISP_STATE.get(id).fetch(`https://state.internal${statePath}${url.search}`);
   return new Response(response.body, response);
 }
