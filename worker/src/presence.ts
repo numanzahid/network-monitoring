@@ -456,6 +456,23 @@ export class IspState {
     return url.searchParams.get("isp") === "isp2" ? "isp2" : "isp1";
   }
 
+  private latestSpeedtest(state: PresenceState): HeartbeatSpeedtest | null {
+    let latest = completeSpeedtest(state.latest_speedtest) ? state.latest_speedtest : null;
+    const rows = this.state.storage.sql.exec<RemoteSpeedtestRow>("SELECT payload_json FROM remote_speedtests ORDER BY datetime(recorded_at) DESC LIMIT 256").toArray();
+    for (const row of rows) {
+      try {
+        const candidate = JSON.parse(row.payload_json) as HeartbeatSpeedtest;
+        if (!completeSpeedtest(candidate)) continue;
+        const candidateTime = Date.parse(candidate.recorded_at);
+        const latestTime = latest ? Date.parse(latest.recorded_at) : NaN;
+        if (!latest || (Number.isFinite(candidateTime) && (!Number.isFinite(latestTime) || candidateTime > latestTime))) latest = candidate;
+      } catch {
+        continue;
+      }
+    }
+    return latest;
+  }
+
   private async publicStatus(state: PresenceState): Promise<Record<string, unknown>> {
     const lastSeenMs = state.last_beat_recv_at ? Date.parse(state.last_beat_recv_at) : NaN;
     const age = Number.isFinite(lastSeenMs) ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null;
@@ -486,7 +503,7 @@ export class IspState {
       missed_heartbeat_minutes_24h: 0,
       open_heartbeat_gap: !isUp && state.last_beat_recv_at ? { started_at: state.outage_started_at ?? state.last_beat_recv_at } : null,
       ongoing_outage: !isUp && state.outage_started_at ? { started_at: state.outage_started_at, reason: "missed_heartbeat" } : null,
-      latest_speedtest: completeSpeedtest(state.latest_speedtest) ? state.latest_speedtest : null,
+      latest_speedtest: this.latestSpeedtest(state),
       notify_state: state.pending_notifications.length ? "pending" : "clear",
     };
   }
