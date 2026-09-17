@@ -227,7 +227,7 @@ class Store:
         since_iso = since.isoformat().replace("+00:00", "Z")
         with self.lock:
             rows = self.connection.execute("SELECT probe_ts, latency_ms FROM beats WHERE isp_id = ? AND probe_ts >= ? AND latency_ms IS NOT NULL ORDER BY probe_ts ASC", (isp, since_iso)).fetchall()
-            gaps = self.connection.execute("SELECT * FROM heartbeat_gaps WHERE isp_id = ? AND started_at <= ? AND ended_at >= ? ORDER BY started_at DESC", (isp, iso_now(), since_iso)).fetchall()
+            gaps = self.connection.execute("SELECT * FROM heartbeat_gaps WHERE isp_id = ? AND started_at <= ? AND ended_at >= ? AND duration_seconds > ? ORDER BY started_at DESC", (isp, iso_now(), since_iso, INTERVAL_SECONDS * (MISSING_BEAT_THRESHOLD - 1) + GAP_GRACE_SECONDS)).fetchall()
             oldest = self.connection.execute("SELECT MIN(probe_ts) AS oldest FROM beats WHERE isp_id = ? AND latency_ms IS NOT NULL", (isp,)).fetchone()["oldest"]
         gap_rows = [{"started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"]} for row in gaps]
         available_hours = self.available_hours(oldest)

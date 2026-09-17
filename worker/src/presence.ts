@@ -445,7 +445,7 @@ export class IspState {
   private heartbeatGaps(rows: RemoteBeatRow[]): Array<Record<string, unknown>> {
     const gaps: Array<Record<string, unknown>> = [];
     const interval = getProbeIntervalSeconds(this.env);
-    const threshold = interval + Math.max(5, Math.floor(interval / 10));
+    const threshold = interval * getMissedBeatThreshold(this.env) + Math.max(5, Math.floor(interval / 10));
     for (let index = 1; index < rows.length; index += 1) {
       const previous = Date.parse(rows[index - 1].probe_ts);
       const current = Date.parse(rows[index].probe_ts);
