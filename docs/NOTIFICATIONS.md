@@ -1,8 +1,7 @@
 # Notifications
 
 Notifications are sent by the Cloudflare Worker when an ISP transitions between
-up and down states. Alerts are debounced; one down alert and one recovery alert
-are sent per outage.
+up and down states. Each ISP has its own notification queue.
 
 ## Enable channels
 
@@ -66,6 +65,12 @@ Add `discord` to `NOTIFIER_CHANNELS`.
 ## Retry behavior
 
 Each ISP Durable Object schedules an alarm after every accepted heartbeat.
-The alarm detects missed beats and retries any notification that could not be
-delivered. Down and recovery notifications are kept in order, so a failed DOWN
-delivery cannot be replaced by the later UP notification.
+The alarm detects missed beats and retries notifications that could not be
+delivered. If an outage recovers before its DOWN notification is delivered, the
+queue replaces the pair with one `[RECOVERED]` message. That message includes
+the outage start and end, duration, current state, and delivery delay. This
+avoids sending a stale DOWN message immediately followed by an UP message.
+
+HTTP 429 responses use the server's retry interval when available, with a
+bounded fallback delay, so the Worker does not retry on every heartbeat while a
+notification service is rate limiting it.
