@@ -80,11 +80,28 @@ def lookup_network_identity(public_ipv4: str | None, timeout: float) -> dict[str
     if not public_ipv4:
         return {"isp_name": None, "network_asn": None}
     try:
-        result = requests.get(f"https://ipapi.co/{public_ipv4}/json/", timeout=timeout, headers={"User-Agent": "monitoring-probe/2"})
+        result = requests.get(f"https://ipwho.is/{public_ipv4}", timeout=timeout, headers={"User-Agent": "network-monitor"})
         payload = result.json()
-        if result.ok:
-            return {"isp_name": payload.get("org") or payload.get("asn"), "network_asn": payload.get("asn")}
-    except (requests.RequestException, ValueError):
+        connection = payload.get("connection") if isinstance(payload, dict) else None
+        if result.ok and isinstance(connection, dict) and payload.get("success") is True:
+            asn = connection.get("asn")
+            return {
+                "isp_name": connection.get("isp") or connection.get("org"),
+                "network_asn": f"AS{asn}" if asn else None,
+            }
+    except (requests.RequestException, ValueError, TypeError):
+        pass
+    try:
+        result = requests.get(f"https://ipinfo.io/{public_ipv4}/json", timeout=timeout, headers={"User-Agent": "network-monitor"})
+        payload = result.json()
+        organization = payload.get("org") if isinstance(payload, dict) else None
+        if result.ok and isinstance(organization, str) and organization:
+            parts = organization.split(" ", 1)
+            return {
+                "isp_name": parts[1] if len(parts) == 2 else organization,
+                "network_asn": parts[0] if parts[0].startswith("AS") else None,
+            }
+    except (requests.RequestException, ValueError, TypeError):
         pass
     return {"isp_name": None, "network_asn": None}
 

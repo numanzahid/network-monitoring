@@ -5,11 +5,11 @@ services:
     image: python:3.13-slim
     container_name: ${PROBE_CONTAINER_NAME}
     command:
-      [
-        "sh",
-        "-c",
-        "apt-get update -qq && apt-get install -y -qq traceroute && pip install -q -r /probe/requirements.txt && python /probe/probe.py",
-      ]
+      - "sh"
+      - "-c"
+      - >-
+        timeout 30s sh -c 'apt-get update -qq && apt-get install -y -qq traceroute' || true;
+        pip install -q -r /probe/requirements.txt && exec python /probe/probe.py
     networks:
       default:
       monitoring-local:
