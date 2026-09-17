@@ -201,6 +201,12 @@ select {
   font-size: 0.85em;
 }
 
+.speedtest-age {
+  color: var(--muted);
+  font-size: 0.78em;
+  white-space: nowrap;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);

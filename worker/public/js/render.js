@@ -121,8 +121,28 @@ function formatSpeedtestCompact(speedtest) {
 
   const down = formatMbpsCompact(speedtest.download_mbps);
   const up = formatMbpsCompact(speedtest.upload_mbps);
+  const age = formatSpeedtestAge(speedtest.recorded_at);
+  const acquiredAt = formatDate(speedtest.recorded_at);
 
-  return `<span class="speedtest-compact"><span class="speedtest-item" title="Download">${speedDirectionIcon("down")}${down}</span><span class="speedtest-item" title="Upload">${speedDirectionIcon("up")}${up}</span><span class="speedtest-unit">Mbps</span></span>`;
+  return `<span class="speedtest-compact"><span class="speedtest-item" title="Download">${speedDirectionIcon("down")}${down}</span><span class="speedtest-item" title="Upload">${speedDirectionIcon("up")}${up}</span><span class="speedtest-unit">Mbps</span><span class="speedtest-age" title="Acquired ${escapeHtml(acquiredAt)}">${escapeHtml(age)}</span></span>`;
+}
+
+function formatSpeedtestAge(value) {
+  const recordedAt = Date.parse(value ?? "");
+  if (!Number.isFinite(recordedAt)) {
+    return "-";
+  }
+  const seconds = Math.max(0, Math.floor((Date.now() - recordedAt) / 1000));
+  if (seconds < 60) {
+    return "just now";
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m ago` : `${hours}h ago`;
 }
 
 function formatHeartbeatAge(seconds, stale) {
