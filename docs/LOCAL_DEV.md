@@ -11,7 +11,9 @@ cp .dev.vars.example .dev.vars
 npm run dev
 ```
 
-The local Worker provides `GET /api/status` and accepts signed heartbeat v2 payloads. It does not provide long-range history.
+The local Worker provides `GET /api/status`, bounded remote history endpoints,
+and accepts signed heartbeat v2 payloads. It does not provide long-range
+history; that remains in the local history app.
 
 ## history app
 

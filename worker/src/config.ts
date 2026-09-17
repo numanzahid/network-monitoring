@@ -17,6 +17,14 @@ export function getHeartbeatMaxAgeSeconds(env: Env): number {
   return Math.max(10, parseIntEnv(env.HEARTBEAT_MAX_AGE_SECONDS, 300));
 }
 
+export function getRemoteHistoryHours(env: Env): number {
+  return Math.min(24 * 30, Math.max(1, parseIntEnv(env.REMOTE_HISTORY_HOURS, 24)));
+}
+
+export function getRemoteSpeedtestHistoryDays(env: Env): number {
+  return Math.min(365, Math.max(1, parseIntEnv(env.REMOTE_SPEEDTEST_HISTORY_DAYS, 30)));
+}
+
 export function isNotifyEnabled(env: Env): boolean {
   return (env.NOTIFY_ENABLED ?? "false").toLowerCase() === "true";
 }

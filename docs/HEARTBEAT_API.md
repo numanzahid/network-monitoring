@@ -56,4 +56,4 @@ The raw body must be byte-identical to the signed body. The Worker rejects stale
 
 ## state rules
 
-Each ISP is independent. Durable Object alarms calculate missed beats from Worker receive time. `NOTIFY_AFTER_MISSED_BEATS` controls the DOWN threshold. A valid newer beat changes the ISP back to UP. Failed check flags are reported as degraded health while remote presence remains separate.
+Each ISP is independent. Durable Object alarms calculate missed beats from Worker receive time. `NOTIFY_AFTER_MISSED_BEATS` controls the DOWN threshold. A valid newer beat changes the ISP back to UP. Failed check flags are reported as degraded health while remote presence remains separate. The Worker keeps bounded recent heartbeat, outage, and speedtest history in each ISP's Durable Object; the local history service remains the long-term source of truth.

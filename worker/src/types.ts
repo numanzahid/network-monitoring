@@ -8,6 +8,8 @@ export interface Env {
   NOTIFY_AFTER_MISSED_BEATS: string;
   PROBE_INTERVAL_SECONDS: string;
   HEARTBEAT_MAX_AGE_SECONDS: string;
+  REMOTE_HISTORY_HOURS: string;
+  REMOTE_SPEEDTEST_HISTORY_DAYS: string;
   ISP1_LABEL: string;
   ISP2_LABEL: string;
   STATUS_PAGE_URL: string;

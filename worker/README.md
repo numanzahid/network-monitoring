@@ -1,6 +1,6 @@
 # cloudflare worker
 
-The Worker receives compact signed heartbeats and keeps live presence state in one Durable Object per ISP. It serves the live status API and sends transition notifications. Detailed history is stored by the local history service.
+The Worker receives compact signed heartbeats and keeps live presence state in one Durable Object per ISP. It serves the live status API, bounded recent history, and transition notifications. Detailed long-term history is stored by the local history service.
 
 ## setup
 
@@ -23,7 +23,14 @@ Set `STATUS_PAGE_URL` in the Cloudflare dashboard if notification links are need
 
 - `GET /api/status` returns live state for both ISPs.
 - `POST /api/heartbeat` accepts v2 compact signed heartbeats.
-- `/api/history/*` returns `410`; history is served by the local history app.
+- `GET /api/history/latency` returns bounded recent heartbeat samples.
+- `GET /api/history/outages` returns bounded recent remote outages.
+- `GET /api/history/speedtests` returns bounded recent speedtest summaries.
+
+Remote heartbeat history is retained for `REMOTE_HISTORY_HOURS` (24 hours by
+default). Remote speedtest history is retained for
+`REMOTE_SPEEDTEST_HISTORY_DAYS` (30 days by default). The local history app
+remains the source of truth for long-term charts and logs.
 
 The v2 signature covers:
 
