@@ -121,17 +121,21 @@ def run_traceroute(target: str, max_hops: int, timeout: float) -> list[str] | No
 
 def get_traceroute(target: str, max_hops: int, interval: int, timeout: float) -> list[str] | None:
     cache = Path(os.environ.get("STATE_DIR", "/state")) / "traceroute.json"
+    cached_lines: list[str] | None = None
     try:
         cached = json.loads(cache.read_text()) if cache.exists() else None
-        if cached and time.time() - float(cached.get("at", 0)) < interval:
-            return cached.get("lines")
+        if cached and isinstance(cached.get("lines"), list):
+            cached_lines = [line for line in cached["lines"] if isinstance(line, str)]
+            if cached_lines and time.time() - float(cached.get("at", 0)) < interval:
+                return cached_lines
     except (OSError, ValueError, TypeError):
         pass
     lines = run_traceroute(target, max_hops, timeout)
     if lines:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps({"at": time.time(), "lines": lines}))
-    return lines
+        return lines
+    return cached_lines
 
 
 def bits_to_mbps(value: Any) -> float | None:
