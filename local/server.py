@@ -207,8 +207,13 @@ class Store:
         down = 0
         window = max(1, int((datetime.now(timezone.utc) - since).total_seconds()))
         for row in rows:
-            start = max(parse_iso(row["started_at"]) or since, since)
-            end = min(parse_iso(row["ended_at"]) or datetime.now(timezone.utc), datetime.now(timezone.utc))
+            start_time = parse_iso(row["started_at"])
+            end_time = parse_iso(row["ended_at"]) if row["ended_at"] else datetime.now(timezone.utc)
+            duration = max(0, int((end_time - start_time).total_seconds())) if start_time and end_time else 0
+            if row["ended_at"] is not None and duration < INTERVAL_SECONDS:
+                continue
+            start = max(start_time or since, since)
+            end = min(end_time, datetime.now(timezone.utc))
             duration = max(0, int((end - start).total_seconds()))
             down += duration
             outages.append({"id": row["id"], "started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"], "ongoing": row["ended_at"] is None})

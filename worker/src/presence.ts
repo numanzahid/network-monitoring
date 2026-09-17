@@ -114,6 +114,18 @@ interface RemoteOutageRow {
   reason: string;
 }
 
+function outageDurationSeconds(row: RemoteOutageRow): number | null {
+  if (row.duration_seconds !== null) return Math.max(0, row.duration_seconds);
+  if (!row.ended_at) return null;
+  const duration = (Date.parse(row.ended_at) - Date.parse(row.started_at)) / 1000;
+  return Number.isFinite(duration) ? Math.max(0, Math.floor(duration)) : null;
+}
+
+function isMeaningfulOutage(row: RemoteOutageRow, minimumSeconds: number): boolean {
+  const duration = outageDurationSeconds(row);
+  return duration === null || duration >= minimumSeconds;
+}
+
 async function sendNtfy(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
   if (!env.NTFY_TOPIC) return { ok: false, error: "ntfy_topic_missing" };
   const headers = new Headers({ "Content-Type": "text/plain; charset=utf-8", Title: payload.title, Priority: payload.priority, Tags: payload.tags });
@@ -460,7 +472,8 @@ export class IspState {
     const retentionSince = new Date(Date.now() - retentionDays * 86400 * 1000).toISOString();
     const now = nowIso();
     const ispId = this.ispId(url);
-    const rows = this.state.storage.sql.exec<RemoteOutageRow>("SELECT id, started_at, ended_at, duration_seconds, reason FROM remote_outages WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) ORDER BY started_at DESC", now, since).toArray();
+    const rows = this.state.storage.sql.exec<RemoteOutageRow>("SELECT id, started_at, ended_at, duration_seconds, reason FROM remote_outages WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) ORDER BY started_at DESC", now, since).toArray()
+      .filter((row) => isMeaningfulOutage(row, getProbeIntervalSeconds(this.env)));
     const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(started_at) AS oldest FROM remote_outages WHERE started_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
     const outages = rows.map((row) => ({ id: row.id, started_at: row.started_at, ended_at: row.ended_at, duration_seconds: row.duration_seconds, reason: row.reason, ongoing: row.ended_at === null }));
     const window = Math.max(1, days * 86400);
