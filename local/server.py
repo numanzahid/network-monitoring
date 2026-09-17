@@ -440,8 +440,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Not Found"}, 404)
                 return
             content = candidate.read_bytes()
+            content_type = "application/octet-stream"
+            if candidate.suffix == ".html":
+                content_type = "text/html; charset=utf-8"
+                if candidate.name == "index.html":
+                    content = content.replace(
+                        b"<title>Network Monitoring</title>",
+                        b"<title>Local Network Monitoring</title>",
+                    )
+            elif candidate.suffix == ".js":
+                content_type = "text/javascript; charset=utf-8"
+            elif candidate.suffix == ".css":
+                content_type = "text/css; charset=utf-8"
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8" if candidate.suffix == ".html" else "text/javascript; charset=utf-8" if candidate.suffix == ".js" else "text/css; charset=utf-8" if candidate.suffix == ".css" else "application/octet-stream")
+            self.send_header("Content-Type", content_type)
+            if candidate.name == "index.html":
+                self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
