@@ -6,7 +6,7 @@ function response(body: unknown, status = 200): Response {
 }
 
 function defaultState(ispId: CompactHeartbeat["isp_id"]): PresenceState {
-  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notification: null, last_notification_id: null };
+  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null };
 }
 
 function nowIso(): string { return new Date().toISOString(); }
@@ -86,18 +86,21 @@ async function sendNotification(env: Env, payload: NotificationPayload): Promise
 }
 
 async function deliverPending(state: PresenceState, env: Env): Promise<PresenceState> {
-  const pending = state.pending_notification;
-  if (!pending) return state;
-  const label = getIspLabel(env, state.isp_id);
-  const isDown = pending.type === "down";
-  const duration = pending.ended_at ? formatDuration(Math.max(0, (Date.parse(pending.ended_at) - Date.parse(pending.started_at)) / 1000)) : `${state.missed_beats} missed beat${state.missed_beats === 1 ? "" : "s"}`;
-  const body = isDown
-    ? `Remote presence missed ${state.missed_beats} beat${state.missed_beats === 1 ? "" : "s"}.\nLast receive: ${state.last_beat_recv_at ?? "unknown"}\nLast latency: ${state.latency_ms === null ? "unknown" : `${state.latency_ms} ms`}`
-    : `Remote presence recovered after ${duration}.\nLast latency: ${state.latency_ms === null ? "unknown" : `${state.latency_ms} ms`}`;
-  const sent = await sendNotification(env, { title: `${isDown ? "[DOWN]" : "[UP]"} ${label}`, body, priority: isDown ? env.NTFY_PRIORITY_DOWN : env.NTFY_PRIORITY_UP, tags: `${state.isp_id},${isDown ? "warning" : "white_check_mark"}`, clickUrl: env.STATUS_PAGE_URL || undefined });
-  if (sent) {
+  while (state.pending_notifications.length) {
+    const pending = state.pending_notifications[0];
+    const label = getIspLabel(env, state.isp_id);
+    const isDown = pending.type === "down";
+    const missedBeats = pending.missed_beats ?? state.missed_beats;
+    const lastReceive = pending.last_beat_recv_at ?? state.last_beat_recv_at;
+    const latency = pending.latency_ms ?? state.latency_ms;
+    const duration = pending.ended_at ? formatDuration(Math.max(0, (Date.parse(pending.ended_at) - Date.parse(pending.started_at)) / 1000)) : `${missedBeats} missed beat${missedBeats === 1 ? "" : "s"}`;
+    const body = isDown
+      ? `Remote presence missed ${missedBeats} beat${missedBeats === 1 ? "" : "s"}.\nLast receive: ${lastReceive ?? "unknown"}\nLast latency: ${latency === null ? "unknown" : `${latency} ms`}`
+      : `Remote presence recovered after ${duration}.\nLast latency: ${latency === null ? "unknown" : `${latency} ms`}`;
+    const sent = await sendNotification(env, { title: `${isDown ? "[DOWN]" : "[UP]"} ${label}`, body, priority: isDown ? env.NTFY_PRIORITY_DOWN : env.NTFY_PRIORITY_UP, tags: `${state.isp_id},${isDown ? "warning" : "white_check_mark"}`, clickUrl: env.STATUS_PAGE_URL || undefined });
+    if (!sent) break;
     state.last_notification_id = pending.id;
-    state.pending_notification = null;
+    state.pending_notifications.shift();
   }
   return state;
 }
@@ -134,7 +137,7 @@ export class IspState {
         current.presence_state = "down";
         current.outage_started_at = new Date(Date.parse(current.last_beat_recv_at) + threshold * interval * 1000).toISOString();
         current.transition_number += 1;
-        current.pending_notification = { id: `${current.isp_id}-${current.transition_number}-down`, type: "down", started_at: current.outage_started_at, reason: "missed_heartbeat" };
+        current.pending_notifications.push({ id: `${current.isp_id}-${current.transition_number}-down`, type: "down", started_at: current.outage_started_at, reason: "missed_heartbeat", missed_beats: current.missed_beats, last_beat_recv_at: current.last_beat_recv_at, latency_ms: current.latency_ms });
       }
       const updated = await deliverPending(current, this.env);
       await this.save(updated);
@@ -144,7 +147,14 @@ export class IspState {
 
   private async load(ispId?: CompactHeartbeat["isp_id"]): Promise<PresenceState> {
     const stored = await this.state.storage.get<PresenceState>("state");
-    if (stored) return stored;
+    if (stored) {
+      const legacyPending = stored.pending_notification ?? null;
+      stored.pending_notifications = Array.isArray(stored.pending_notifications)
+        ? stored.pending_notifications
+        : legacyPending ? [legacyPending] : [];
+      stored.pending_notification = null;
+      return stored;
+    }
     return defaultState(ispId ?? "isp1");
   }
 
@@ -172,7 +182,7 @@ export class IspState {
     if (payload.s !== undefined) current.latest_speedtest = payload.s ?? null;
     current.presence_state = "up";
     if (wasDown) {
-      current.pending_notification = { id: `${current.isp_id}-${current.transition_number}-up`, type: "up", started_at: previousOutage ?? receivedAt, ended_at: receivedAt };
+      current.pending_notifications.push({ id: `${current.isp_id}-${current.transition_number}-up`, type: "up", started_at: previousOutage ?? receivedAt, ended_at: receivedAt, latency_ms: current.latency_ms });
       current.outage_started_at = null;
     }
     const updated = await deliverPending(current, this.env);
@@ -216,7 +226,7 @@ export class IspState {
       open_heartbeat_gap: !isUp && state.last_beat_recv_at ? { started_at: state.outage_started_at ?? state.last_beat_recv_at } : null,
       ongoing_outage: !isUp && state.outage_started_at ? { started_at: state.outage_started_at, reason: "missed_heartbeat" } : null,
       latest_speedtest: state.latest_speedtest,
-      notify_state: state.pending_notification ? "pending" : "clear",
+      notify_state: state.pending_notifications.length ? "pending" : "clear",
     };
   }
 }

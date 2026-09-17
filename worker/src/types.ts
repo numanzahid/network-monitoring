@@ -59,6 +59,9 @@ export interface PresenceNotification {
   started_at: string;
   ended_at?: string;
   reason?: string;
+  missed_beats?: number;
+  last_beat_recv_at?: string | null;
+  latency_ms?: number | null;
 }
 
 export interface PresenceState {
@@ -76,6 +79,7 @@ export interface PresenceState {
   missed_beats: number;
   outage_started_at: string | null;
   transition_number: number;
-  pending_notification: PresenceNotification | null;
+  pending_notifications: PresenceNotification[];
+  pending_notification?: PresenceNotification | null;
   last_notification_id: string | null;
 }

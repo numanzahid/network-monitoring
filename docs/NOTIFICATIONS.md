@@ -65,8 +65,7 @@ Add `discord` to `NOTIFIER_CHANNELS`.
 
 ## Retry behavior
 
-A cron job runs every 5 minutes to:
-
-- detect stale probes
-- retry unsent down/recovery notifications
-- clean up old heartbeat nonces
+Each ISP Durable Object schedules an alarm after every accepted heartbeat.
+The alarm detects missed beats and retries any notification that could not be
+delivered. Down and recovery notifications are kept in order, so a failed DOWN
+delivery cannot be replaced by the later UP notification.
