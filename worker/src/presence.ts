@@ -292,12 +292,15 @@ export class IspState {
   private latencyHistory(url: URL): Response {
     const requestedHours = this.historyHours(url);
     const retentionHours = getRemoteHistoryHours(this.env);
+    const retentionSince = new Date(Date.now() - retentionHours * 3600 * 1000).toISOString();
     const since = new Date(Date.now() - Math.min(requestedHours, retentionHours) * 3600 * 1000).toISOString();
     const rows = this.state.storage.sql.exec<RemoteBeatRow>("SELECT probe_ts, received_at, flags, latency_ms FROM heartbeat_history WHERE received_at >= ? ORDER BY probe_ts ASC", since).toArray();
+    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(received_at) AS oldest FROM heartbeat_history WHERE received_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
     const points = rows.map((row) => ({ recorded_at: row.probe_ts, latency_ms: row.latency_ms }));
     const gaps = this.heartbeatGaps(rows);
     const ispId = this.ispId(url);
-    const result: Record<string, unknown> = { isp_id: ispId, label: getIspLabel(this.env, ispId), points, gaps, granularity: "sample", history_available: true, retention_hours: retentionHours };
+    const availableHours = oldest ? Math.min(retentionHours, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 3600000))) : 0;
+    const result: Record<string, unknown> = { isp_id: ispId, label: getIspLabel(this.env, ispId), points, gaps, granularity: "sample", history_available: true, retention_hours: retentionHours, available_hours: availableHours };
     if (url.searchParams.has("hours")) result.hours = requestedHours;
     else result.days = Math.max(1, Math.ceil(requestedHours / 24));
     return response(result);
@@ -346,11 +349,14 @@ export class IspState {
   private speedtestHistory(url: URL): Response {
     const requestedDays = this.historyDays(url);
     const retentionDays = getRemoteSpeedtestHistoryDays(this.env);
+    const retentionSince = new Date(Date.now() - retentionDays * 86400 * 1000).toISOString();
     const since = new Date(Date.now() - Math.min(requestedDays, retentionDays) * 86400 * 1000).toISOString();
     const ispId = this.ispId(url);
     const rows = this.state.storage.sql.exec<RemoteSpeedtestRow>("SELECT payload_json FROM remote_speedtests WHERE received_at >= ? ORDER BY recorded_at ASC", since).toArray();
+    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(received_at) AS oldest FROM remote_speedtests WHERE received_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
     const results = rows.map((row) => JSON.parse(row.payload_json));
-    return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days: requestedDays, results, history_available: true, retention_days: retentionDays });
+    const availableDays = oldest ? Math.min(retentionDays, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 86400000))) : 0;
+    return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days: requestedDays, results, history_available: true, retention_days: retentionDays, available_days: availableDays });
   }
 
   private historyHours(url: URL): number {

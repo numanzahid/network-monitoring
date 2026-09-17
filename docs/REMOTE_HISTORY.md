@@ -25,3 +25,7 @@ GET /api/history/speedtests?isp=isp1&days=30
 
 The endpoints are read-only and use the same response shapes as the local
 history service, so the existing dashboard can use either source.
+
+Latency responses include `available_hours`; speedtest responses include
+`available_days`. The dashboard uses these values across both ISPs and hides
+range choices that cannot be filled by the available data.

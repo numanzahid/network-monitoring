@@ -55,6 +55,41 @@ function selectedTableDayCount() {
   return Number(tableDays.value);
 }
 
+function syncAvailableOptions(select, histories, field, toUnits) {
+  const available = histories
+    .map((history) => Number(history[field]))
+    .filter((value) => Number.isFinite(value));
+  if (!available.length) {
+    return false;
+  }
+
+  const maximum = Math.max(1, Math.min(...available));
+  let firstVisible = null;
+  for (const option of select.options) {
+    const visible = toUnits(option.value) <= maximum;
+    option.hidden = !visible;
+    option.disabled = !visible;
+    if (visible && firstVisible === null) {
+      firstVisible = option.value;
+    }
+  }
+
+  if (select.selectedOptions[0]?.disabled && firstVisible !== null) {
+    select.value = firstVisible;
+    return true;
+  }
+  return false;
+}
+
+function latencyRangeHours(value) {
+  const amount = Number(value.slice(2));
+  return value.startsWith("h:") ? amount : amount * 24;
+}
+
+function speedtestRangeDays(value) {
+  return Number(value);
+}
+
 async function fetchLatencyHistories(range) {
   return Promise.all(ispIds.map((ispId) => getLatencyHistory(ispId, range)));
 }
@@ -81,22 +116,28 @@ async function mountLatencyChartsSection(range) {
   resetLatencyCharts();
   clearChartContainer(latencyCharts);
 
-  const latencyHistories = await fetchLatencyHistories(range);
+  let latencyHistories = await fetchLatencyHistories(range);
+  if (syncAvailableOptions(latencyRange, latencyHistories, "available_hours", latencyRangeHours)) {
+    latencyHistories = await fetchLatencyHistories(selectedLatencyRange());
+  }
   mountLatencyCharts(latencyCharts, latencyHistories);
 
   latencyChartsMounted = true;
-  mountedLatencyRange = range;
+  mountedLatencyRange = selectedLatencyRange();
 }
 
 async function mountSpeedtestChartsSection(dayCount) {
   resetSpeedtestCharts();
   clearChartContainer(speedtestCharts);
 
-  const speedtestHistories = await fetchSpeedtestHistories(dayCount);
+  let speedtestHistories = await fetchSpeedtestHistories(dayCount);
+  if (syncAvailableOptions(speedtestDays, speedtestHistories, "available_days", speedtestRangeDays)) {
+    speedtestHistories = await fetchSpeedtestHistories(selectedSpeedtestDayCount());
+  }
   mountSpeedtestCharts(speedtestCharts, speedtestHistories);
 
   speedtestChartsMounted = true;
-  mountedSpeedtestDayCount = dayCount;
+  mountedSpeedtestDayCount = selectedSpeedtestDayCount();
 }
 
 async function loadLatencyCharts({ remount = false } = {}) {

@@ -208,8 +208,10 @@ class Store:
         with self.lock:
             rows = self.connection.execute("SELECT probe_ts, latency_ms FROM beats WHERE isp_id = ? AND probe_ts >= ? AND latency_ms IS NOT NULL ORDER BY probe_ts ASC", (isp, since_iso)).fetchall()
             gaps = self.connection.execute("SELECT * FROM heartbeat_gaps WHERE isp_id = ? AND started_at <= ? AND ended_at >= ? ORDER BY started_at DESC", (isp, iso_now(), since_iso)).fetchall()
+            oldest = self.connection.execute("SELECT MIN(probe_ts) AS oldest FROM beats WHERE isp_id = ? AND latency_ms IS NOT NULL", (isp,)).fetchone()["oldest"]
         gap_rows = [{"started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"]} for row in gaps]
-        if hours is not None and hours > 24:
+        available_hours = self.available_hours(oldest)
+        if period_seconds > 24 * 3600:
             buckets: dict[str, list[int]] = {}
             for row in rows:
                 parsed = parse_iso(row["probe_ts"])
@@ -218,14 +220,66 @@ class Store:
                 bucket = parsed.replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
                 buckets.setdefault(bucket, []).append(row["latency_ms"])
             points = [{"recorded_at": key, "min_latency_ms": min(values), "max_latency_ms": max(values), "sample_count": len(values)} for key, values in sorted(buckets.items())]
-            return {"isp_id": isp, "label": isp.upper(), "hours": hours, "granularity": "hour", "points": points, "gaps": gap_rows, "history_available": True}
-        return {"isp_id": isp, "label": isp.upper(), "days": days, "hours": hours, "granularity": "sample", "points": [{"recorded_at": row["probe_ts"], "latency_ms": row["latency_ms"]} for row in rows], "gaps": gap_rows, "history_available": True}
+            return {"isp_id": isp, "label": isp.upper(), "days": days, "hours": hours, "available_hours": available_hours, "granularity": "hour", "points": points, "gaps": gap_rows, "history_available": True}
+        return {"isp_id": isp, "label": isp.upper(), "days": days, "hours": hours, "available_hours": available_hours, "granularity": "sample", "points": [{"recorded_at": row["probe_ts"], "latency_ms": row["latency_ms"]} for row in rows], "gaps": gap_rows, "history_available": True}
+
+    @staticmethod
+    def available_hours(oldest: str | None) -> int:
+        parsed = parse_iso(oldest)
+        if not parsed:
+            return 0
+        age = max(0, (datetime.now(timezone.utc) - parsed).total_seconds())
+        return max(1, int((age + 3599) // 3600))
 
     def speedtests(self, isp: str, days: int) -> dict:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
         with self.lock:
-            rows = self.connection.execute("SELECT payload_json FROM speedtest_results WHERE isp_id = ? AND recorded_at >= ? ORDER BY recorded_at ASC", (isp, since)).fetchall()
-        return {"isp_id": isp, "label": isp.upper(), "days": days, "results": [json.loads(row["payload_json"]) for row in rows], "history_available": True}
+            rows = self.connection.execute("SELECT payload_json FROM speedtest_results WHERE isp_id = ? AND datetime(recorded_at) >= datetime(?) ORDER BY datetime(recorded_at) ASC", (isp, since)).fetchall()
+            oldest = self.connection.execute("SELECT MIN(recorded_at) AS oldest FROM speedtest_results WHERE isp_id = ?", (isp,)).fetchone()["oldest"]
+        parsed = parse_iso(oldest.replace(" ", "T") + "Z") if oldest and "T" not in oldest else parse_iso(oldest)
+        age_days = 0 if not parsed else max(1, int(((datetime.now(timezone.utc) - parsed).total_seconds() + 86399) // 86400))
+        return {"isp_id": isp, "label": isp.upper(), "days": days, "available_days": age_days, "results": [json.loads(row["payload_json"]) for row in rows], "history_available": True}
+
+    def status(self) -> dict:
+        isps = []
+        for isp in ("isp1", "isp2"):
+            with self.lock:
+                beat = self.connection.execute("SELECT * FROM beats WHERE isp_id = ? ORDER BY received_at DESC LIMIT 1", (isp,)).fetchone()
+                metadata_row = self.connection.execute("SELECT metadata_json FROM metadata_events WHERE isp_id = ? ORDER BY recorded_at DESC LIMIT 1", (isp,)).fetchone()
+                speedtest_row = self.connection.execute("SELECT payload_json FROM speedtest_results WHERE isp_id = ? ORDER BY recorded_at DESC LIMIT 1", (isp,)).fetchone()
+            if beat is None:
+                continue
+            metadata = json.loads(metadata_row["metadata_json"]) if metadata_row else {}
+            last_received = parse_iso(beat["received_at"])
+            age = None if last_received is None else max(0, int((datetime.now(timezone.utc) - last_received).total_seconds()))
+            is_up = age is not None and age < INTERVAL_SECONDS * MISSING_BEAT_THRESHOLD + GAP_GRACE_SECONDS
+            flags = beat["flags"]
+            speedtest = json.loads(speedtest_row["payload_json"]) if speedtest_row else None
+            isps.append({
+                "isp_id": isp,
+                "label": isp.upper(),
+                "is_up": is_up,
+                "display_state": "up" if is_up else "down",
+                "health_state": "healthy" if (flags & 7) == 7 else "degraded",
+                "last_seen_at": beat["received_at"],
+                "last_beat_probe_at": beat["probe_ts"],
+                "heartbeat_age_seconds": age,
+                "heartbeat_stale": age is None or age >= INTERVAL_SECONDS,
+                "missed_beats": 0 if age is None else age // INTERVAL_SECONDS,
+                "missed_heartbeat_minutes_24h": 0,
+                "checks": {
+                    "internet_ok": bool(flags & 1),
+                    "dns_ok": bool(flags & 2),
+                    "https_ok": bool(flags & 4),
+                    "https_latency_ms": beat["latency_ms"],
+                },
+                "public_ipv4": metadata.get("public_ipv4"),
+                "isp_name": metadata.get("isp_name"),
+                "network_asn": metadata.get("network_asn"),
+                "traceroute": metadata.get("traceroute"),
+                "latest_speedtest": speedtest,
+            })
+        return {"generated_at": iso_now(), "isps": isps, "status_page_url": "", "history_available": True}
 
 
 STORE = Store(DB_PATH)
@@ -293,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
                             return
                     except (urllib.error.URLError, ValueError):
                         pass
-                self.send_json({"generated_at": iso_now(), "isps": [], "status_page_url": "", "history_available": True})
+                self.send_json(STORE.status())
                 return
             if parsed.path == "/api/history/outages":
                 if isp not in {"isp1", "isp2"}:
