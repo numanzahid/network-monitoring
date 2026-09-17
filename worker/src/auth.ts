@@ -106,14 +106,33 @@ export async function verifyHeartbeat(env: Env, rawBody: string, authorization: 
   if (!parsed || typeof parsed !== "object") return { ok: false, status: 400, error: "Invalid JSON body" };
   const item = parsed as Record<string, unknown>;
   if (!isValidIspId(item.isp_id)) return { ok: false, status: 400, error: "Invalid isp_id" };
-  const secret = getProbeSecret(env, item.isp_id);
-  if (!secret) return { ok: false, status: 503, error: "Probe secret is not configured" };
   const compact = validateCompact(parsed, env);
   if (!compact.ok) return { ok: false, status: 400, error: compact.error };
   const payload = compact.payload;
-  const message = `${payload.ts}.${payload.boot_id}.${payload.seq}.${rawBody}`;
-  const expected = await sign(secret, message);
+  const verified = await verifySignedRequest(env, payload.isp_id, rawBody, authorization, payload.ts, payload.boot_id, String(payload.seq));
+  if (!verified.ok) return verified;
+  return { ok: true, payload };
+}
+
+export async function verifySignedRequest(
+  env: Env,
+  ispId: CompactHeartbeat["isp_id"],
+  rawBody: string,
+  authorization: string | null,
+  timestamp: string | null,
+  bootId: string | null,
+  sequence: string | null,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (!authorization?.startsWith("Bearer ")) return { ok: false, status: 401, error: "Missing authorization" };
+  if (!timestamp || !bootId || !/^[A-Za-z0-9_-]{8,80}$/.test(bootId)) return { ok: false, status: 400, error: "Invalid signature headers" };
+  const parsedTimestamp = Date.parse(timestamp);
+  const parsedSequence = Number(sequence ?? "");
+  if (!Number.isFinite(parsedTimestamp) || Math.abs(Date.now() - parsedTimestamp) / 1000 > getHeartbeatMaxAgeSeconds(env)) return { ok: false, status: 400, error: "Stale request timestamp" };
+  if (!Number.isSafeInteger(parsedSequence) || parsedSequence < 1) return { ok: false, status: 400, error: "Invalid request sequence" };
+  const secret = getProbeSecret(env, ispId);
+  if (!secret) return { ok: false, status: 503, error: "Probe secret is not configured" };
+  const expected = await sign(secret, `${timestamp}.${bootId}.${parsedSequence}.${rawBody}`);
   const provided = base64ToBytes(authorization.slice("Bearer ".length).trim());
   if (!equalBytes(provided, base64ToBytes(expected))) return { ok: false, status: 401, error: "Invalid signature" };
-  return { ok: true, payload };
+  return { ok: true };
 }

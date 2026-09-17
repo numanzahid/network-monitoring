@@ -90,6 +90,14 @@ function speedtestRangeDays(value) {
   return Number(value);
 }
 
+function syncTableOptions(outageHistories, latencyHistories) {
+  const availability = [
+    ...outageHistories.map((history) => ({ available_days: history.available_days ?? history.retention_days })),
+    ...latencyHistories.map((history) => ({ available_days: history.available_hours !== undefined ? Math.ceil(Number(history.available_hours) / 24) : Math.ceil(Number(history.retention_hours ?? 0) / 24) })),
+  ];
+  return syncAvailableOptions(tableDays, availability, "available_days", speedtestRangeDays);
+}
+
 async function fetchLatencyHistories(range) {
   return Promise.all(ispIds.map((ispId) => getLatencyHistory(ispId, range)));
 }
@@ -163,10 +171,13 @@ async function loadSpeedtestCharts({ remount = false } = {}) {
 }
 
 async function mountTables(dayCount) {
-  const { outageHistories, latencyHistories } = await fetchTableHistories(dayCount);
+  let { outageHistories, latencyHistories } = await fetchTableHistories(dayCount);
+  if (syncTableOptions(outageHistories, latencyHistories)) {
+    ({ outageHistories, latencyHistories } = await fetchTableHistories(selectedTableDayCount()));
+  }
   renderHistoryTables(outageHistories, latencyHistories);
   tablesMounted = true;
-  mountedTableDayCount = dayCount;
+  mountedTableDayCount = selectedTableDayCount();
 }
 
 async function loadTables({ remount = false } = {}) {

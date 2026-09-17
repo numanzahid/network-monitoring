@@ -10,6 +10,7 @@ export interface Env {
   HEARTBEAT_MAX_AGE_SECONDS: string;
   REMOTE_HISTORY_HOURS: string;
   REMOTE_SPEEDTEST_HISTORY_DAYS: string;
+  REMOTE_OUTAGE_HISTORY_DAYS: string;
   ISP1_LABEL: string;
   ISP2_LABEL: string;
   STATUS_PAGE_URL: string;
@@ -66,6 +67,16 @@ export interface PresenceNotification {
   latency_ms?: number | null;
 }
 
+export interface HistorySyncState {
+  request_id: string;
+  heartbeat_since: string;
+  speedtest_since: string;
+  outage_since: string;
+  heartbeat_complete: boolean;
+  speedtest_complete: boolean;
+  outage_complete: boolean;
+}
+
 export interface PresenceState {
   isp_id: IspId;
   boot_id: string | null;
@@ -84,4 +95,5 @@ export interface PresenceState {
   pending_notifications: PresenceNotification[];
   pending_notification?: PresenceNotification | null;
   last_notification_id: string | null;
+  history_sync: HistorySyncState | null;
 }

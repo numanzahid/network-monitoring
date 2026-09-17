@@ -202,6 +202,7 @@ class Store:
         now = iso_now()
         with self.lock:
             rows = self.connection.execute("SELECT * FROM outages WHERE isp_id = ? AND started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) ORDER BY started_at DESC", (isp, now, since_iso)).fetchall()
+            oldest = self.connection.execute("SELECT MIN(started_at) AS oldest FROM outages WHERE isp_id = ?", (isp,)).fetchone()["oldest"]
         outages = []
         down = 0
         window = max(1, int((datetime.now(timezone.utc) - since).total_seconds()))
@@ -211,7 +212,9 @@ class Store:
             duration = max(0, int((end - start).total_seconds()))
             down += duration
             outages.append({"id": row["id"], "started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"], "ongoing": row["ended_at"] is None})
-        return {"isp_id": isp, "label": isp.upper(), "days": days, "uptime_percent": round(max(0, window - down) / window * 100, 2), "outages": outages, "history_available": True}
+        parsed_oldest = parse_iso(oldest)
+        available_days = 0 if not parsed_oldest else max(1, int(((datetime.now(timezone.utc) - parsed_oldest).total_seconds() + 86399) // 86400))
+        return {"isp_id": isp, "label": isp.upper(), "days": days, "available_days": available_days, "uptime_percent": round(max(0, window - down) / window * 100, 2), "outages": outages, "history_available": True}
 
     def latency_history(self, isp: str, days: int | None, hours: int | None) -> dict:
         period_seconds = (hours * 3600) if hours else (days or 7) * 86400
@@ -296,6 +299,50 @@ class Store:
             })
         return {"generated_at": iso_now(), "isps": isps, "status_page_url": "", "history_available": True}
 
+    def sync_export(self, request: dict) -> dict:
+        isp = request.get("isp_id")
+        if isp not in {"isp1", "isp2"} or request.get("v") != 2:
+            raise ValueError("invalid sync request")
+        limit = min(500, max(1, int(request.get("limit", 500))))
+        heartbeat_since = str(request.get("heartbeat_since", "1970-01-01T00:00:00Z"))
+        speedtest_since = str(request.get("speedtest_since", "1970-01-01T00:00:00Z"))
+        outage_since = str(request.get("outage_since", "1970-01-01T00:00:00Z"))
+        cursors = request.get("cursors") if isinstance(request.get("cursors"), dict) else {}
+        heartbeat_cursor = None if cursors.get("heartbeat", 0) is None else max(0, int(cursors.get("heartbeat", 0)))
+        speedtest_cursor = None if cursors.get("speedtest", 0) is None else max(0, int(cursors.get("speedtest", 0)))
+        outage_cursor = None if cursors.get("outage", 0) is None else max(0, int(cursors.get("outage", 0)))
+        with self.lock:
+            heartbeat_rows = [] if heartbeat_cursor is None else self.connection.execute(
+                "SELECT id, boot_id, seq, probe_ts, flags, latency_ms FROM beats WHERE isp_id = ? AND id > ? AND probe_ts >= ? ORDER BY id ASC LIMIT ?",
+                (isp, heartbeat_cursor, heartbeat_since, limit),
+            ).fetchall()
+            speedtest_rows = [] if speedtest_cursor is None else self.connection.execute(
+                "SELECT id, payload_json FROM speedtest_results WHERE isp_id = ? AND id > ? AND datetime(recorded_at) >= datetime(?) ORDER BY id ASC LIMIT ?",
+                (isp, speedtest_cursor, speedtest_since, limit),
+            ).fetchall()
+            outage_rows = [] if outage_cursor is None else self.connection.execute(
+                "SELECT id, started_at, ended_at, duration_seconds, reason FROM outages WHERE isp_id = ? AND id > ? AND started_at >= ? ORDER BY id ASC LIMIT ?",
+                (isp, outage_cursor, outage_since, limit),
+            ).fetchall()
+            oldest_heartbeat = self.connection.execute("SELECT MIN(probe_ts) AS oldest FROM beats WHERE isp_id = ?", (isp,)).fetchone()["oldest"]
+            oldest_speedtest = self.connection.execute("SELECT MIN(recorded_at) AS oldest FROM speedtest_results WHERE isp_id = ?", (isp,)).fetchone()["oldest"]
+            oldest_outage = self.connection.execute("SELECT MIN(started_at) AS oldest FROM outages WHERE isp_id = ?", (isp,)).fetchone()["oldest"]
+        next_cursors = {
+            "heartbeat": int(heartbeat_rows[-1]["id"]) if len(heartbeat_rows) == limit else None,
+            "speedtest": int(speedtest_rows[-1]["id"]) if len(speedtest_rows) == limit else None,
+            "outage": int(outage_rows[-1]["id"]) if len(outage_rows) == limit else None,
+        }
+        return {
+            "ok": True,
+            "isp_id": isp,
+            "heartbeats": [{"boot_id": row["boot_id"], "seq": row["seq"], "probe_ts": row["probe_ts"], "flags": row["flags"], "latency_ms": row["latency_ms"]} for row in heartbeat_rows],
+            "speedtests": [json.loads(row["payload_json"]) for row in speedtest_rows if complete_speedtest(json.loads(row["payload_json"]))],
+            "outages": [{"started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"]} for row in outage_rows],
+            "next_cursors": next_cursors,
+            "complete": all(value is None for value in next_cursors.values()),
+            "source_oldest": {"heartbeat": oldest_heartbeat, "speedtest": oldest_speedtest, "outage": oldest_outage},
+        }
+
 
 STORE = Store(DB_PATH)
 
@@ -324,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self) -> None:
-        if self.path != "/api/ingest":
+        if self.path not in {"/api/ingest", "/api/sync/export"}:
             self.send_json({"error": "Not Found"}, 404)
             return
         if not INGEST_TOKEN or self.headers.get("Authorization") != f"Bearer {INGEST_TOKEN}":
@@ -336,7 +383,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             payload = json.loads(self.rfile.read(length))
-            self.send_json(STORE.ingest(payload))
+            self.send_json(STORE.sync_export(payload) if self.path == "/api/sync/export" else STORE.ingest(payload))
         except (ValueError, json.JSONDecodeError) as error:
             self.send_json({"error": str(error)}, 400)
         except Exception:

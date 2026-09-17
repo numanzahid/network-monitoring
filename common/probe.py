@@ -180,13 +180,30 @@ def sign(secret: str, message: str) -> str:
     return base64.b64encode(digest).decode()
 
 
-def post_json(url: str, token: str | None, body: str, timeout: float) -> None:
+def post_json(url: str, token: str | None, body: str, timeout: float) -> requests.Response:
     headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "monitoring-probe/2"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     result = requests.post(url, data=body, headers=headers, timeout=timeout)
     if result.status_code >= 400:
         raise RuntimeError(f"request failed ({result.status_code})")
+    return result
+
+
+def post_signed_json(url: str, secret: str, body: str, timestamp: str, boot_id: str, sequence: int, timeout: float) -> requests.Response:
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "monitoring-probe/2",
+        "Authorization": f"Bearer {sign(secret, f'{timestamp}.{boot_id}.{sequence}.{body}')}",
+        "X-Probe-Timestamp": timestamp,
+        "X-Probe-Boot-Id": boot_id,
+        "X-Probe-Sequence": str(sequence),
+    }
+    result = requests.post(url, data=body, headers=headers, timeout=timeout)
+    if result.status_code >= 400:
+        raise RuntimeError(f"request failed ({result.status_code})")
+    return result
 
 
 def queue_local(queue_dir: Path, body: str, seq: int) -> None:
@@ -206,6 +223,49 @@ def flush_local(url: str, token: str, queue_dir: Path, timeout: float) -> None:
             path.unlink()
         except (OSError, requests.RequestException, RuntimeError):
             break
+
+
+def sync_history(local_base: str, local_token: str, worker_base: str, secret: str, state: ProbeState, sync_request: dict[str, Any], isp_id: str, boot_id: str, sequence: int, timeout: float) -> None:
+    request_id = sync_request.get("request_id")
+    if not isinstance(request_id, str) or not request_id:
+        return
+    saved = state.data.get("history_sync") if isinstance(state.data.get("history_sync"), dict) else {}
+    if saved.get("request_id") != request_id:
+        cursors = {"heartbeat": 0, "speedtest": 0, "outage": 0}
+    else:
+        cursors = saved.get("cursors") if isinstance(saved.get("cursors"), dict) else {"heartbeat": 0, "speedtest": 0, "outage": 0}
+    export_request = {
+        "v": 2,
+        "isp_id": isp_id,
+        "heartbeat_since": sync_request.get("heartbeat_since"),
+        "speedtest_since": sync_request.get("speedtest_since"),
+        "outage_since": sync_request.get("outage_since"),
+        "cursors": cursors,
+        "limit": 500,
+    }
+    export_response = post_json(normalize_url(local_base, "/api/sync/export"), local_token, json.dumps(export_request, separators=(",", ":"), sort_keys=True), timeout)
+    export = export_response.json()
+    if not isinstance(export, dict) or export.get("ok") is not True:
+        raise RuntimeError("invalid local history export")
+    batch = {
+        "v": 2,
+        "isp_id": isp_id,
+        "sync_id": request_id,
+        "complete": export.get("complete") is True,
+        "heartbeats": export.get("heartbeats", []),
+        "speedtests": export.get("speedtests", []),
+        "outages": export.get("outages", []),
+        "source_oldest": export.get("source_oldest", {}),
+    }
+    batch_body = json.dumps(batch, separators=(",", ":"), sort_keys=True)
+    sync_response = post_signed_json(normalize_url(worker_base, "/api/history/sync"), secret, batch_body, utc_now(), boot_id, sequence, timeout)
+    acknowledgement = sync_response.json()
+    if not isinstance(acknowledgement, dict) or acknowledgement.get("ok") is not True:
+        raise RuntimeError("invalid remote history acknowledgement")
+    state.data["history_sync"] = {"request_id": request_id, "cursors": export.get("next_cursors", {})}
+    if isinstance(acknowledgement.get("history_sync"), dict) and acknowledgement["history_sync"].get("required") is False:
+        state.data["history_sync"]["complete"] = True
+    state.save()
 
 
 def build_measurements(timeout: float) -> tuple[int, int | None, dict[str, Any], dict[str, Any] | None]:
@@ -228,6 +288,7 @@ def run_once(state: ProbeState) -> None:
     secret = env("PROBE_SECRET")
     timeout = float(env("REQUEST_TIMEOUT_SECONDS", "10"))
     worker_url = normalize_url(env("WORKER_URL"), "/api/heartbeat")
+    worker_base = worker_url.removesuffix("/api/heartbeat")
     local_base = os.environ.get("LOCAL_URL", "").strip()
     local_url = normalize_url(local_base, "/api/ingest") if local_base else ""
     local_token = os.environ.get("LOCAL_INGEST_TOKEN", "")
@@ -258,7 +319,14 @@ def run_once(state: ProbeState) -> None:
             queue_local(queue_dir, body, seq)
             print(f"[{timestamp}] local history queued: {error}", file=sys.stderr, flush=True)
     signature = sign(secret, f"{timestamp}.{state.data['boot_id']}.{seq}.{body}")
-    post_json(worker_url, signature, body, timeout)
+    remote_response = post_json(worker_url, signature, body, timeout)
+    try:
+        remote_ack = remote_response.json()
+        sync_request = remote_ack.get("history_sync") if isinstance(remote_ack, dict) else None
+        if local_url and isinstance(sync_request, dict) and sync_request.get("required") is True:
+            sync_history(local_base, local_token, worker_base, secret, state, sync_request, isp_id, state.data["boot_id"], seq, timeout)
+    except (ValueError, OSError, requests.RequestException, RuntimeError) as error:
+        print(f"[{timestamp}] history sync deferred: {error}", file=sys.stderr, flush=True)
 
 
 def main() -> None:

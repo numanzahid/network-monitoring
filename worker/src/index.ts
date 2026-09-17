@@ -1,6 +1,6 @@
 import { handleHeartbeat } from "./api/heartbeat";
 import { handleStatus } from "./api/status";
-import { handleHistory } from "./api/history";
+import { handleHistory, handleHistorySync } from "./api/history";
 import { IspState } from "./presence";
 import type { Env } from "./types";
 
@@ -21,6 +21,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (pathname === "/api/heartbeat") return handleHeartbeat(request, env);
   if (pathname === "/api/status") return handleStatus(request, env);
+  if (pathname === "/api/history/sync") return handleHistorySync(request, env);
   if (pathname === "/api/history/latency" || pathname === "/api/history/outages" || pathname === "/api/history/speedtests") return handleHistory(request, env);
   if (pathname.startsWith("/api/history/")) return jsonResponse({ error: "History is served by the local history app" }, 410);
   return new Response("Not Found", { status: 404 });

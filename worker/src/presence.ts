@@ -1,12 +1,12 @@
-import { getIspLabel, getMissedBeatThreshold, getProbeIntervalSeconds, getRemoteHistoryHours, getRemoteSpeedtestHistoryDays, isNotifyEnabled } from "./config";
-import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, PresenceNotification, PresenceState } from "./types";
+import { getIspLabel, getMissedBeatThreshold, getProbeIntervalSeconds, getRemoteHistoryHours, getRemoteOutageHistoryDays, getRemoteSpeedtestHistoryDays, isNotifyEnabled } from "./config";
+import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, HistorySyncState, PresenceNotification, PresenceState } from "./types";
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 function defaultState(ispId: CompactHeartbeat["isp_id"]): PresenceState {
-  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null };
+  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null, history_sync: null };
 }
 
 function completeSpeedtest(value: HeartbeatSpeedtest | null | undefined): value is HeartbeatSpeedtest {
@@ -17,6 +17,30 @@ function completeSpeedtest(value: HeartbeatSpeedtest | null | undefined): value 
 
 function nowIso(): string { return new Date().toISOString(); }
 function healthy(flags: number): boolean { return (flags & 7) === 7; }
+
+function newHistorySync(env: Env): HistorySyncState {
+  const now = Date.now();
+  return {
+    request_id: crypto.randomUUID(),
+    heartbeat_since: new Date(now - getRemoteHistoryHours(env) * 3600000).toISOString(),
+    speedtest_since: new Date(now - getRemoteSpeedtestHistoryDays(env) * 86400000).toISOString(),
+    outage_since: new Date(now - getRemoteOutageHistoryDays(env) * 86400000).toISOString(),
+    heartbeat_complete: false,
+    speedtest_complete: false,
+    outage_complete: false,
+  };
+}
+
+function historySyncResponse(sync: HistorySyncState | null): Record<string, unknown> | null {
+  if (!sync) return null;
+  return {
+    required: !(sync.heartbeat_complete && sync.speedtest_complete && sync.outage_complete),
+    request_id: sync.request_id,
+    heartbeat_since: sync.heartbeat_since,
+    speedtest_since: sync.speedtest_since,
+    outage_since: sync.outage_since,
+  };
+}
 
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -56,8 +80,6 @@ interface RemoteOutageRow {
   duration_seconds: number | null;
   reason: string;
 }
-
-const REMOTE_OUTAGE_RETENTION_DAYS = 30;
 
 async function sendNtfy(env: Env, payload: NotificationPayload): Promise<boolean> {
   if (!env.NTFY_TOPIC) return false;
@@ -153,14 +175,14 @@ export class IspState {
         latency_ms INTEGER,
         UNIQUE (boot_id, seq)
       );
-      CREATE INDEX IF NOT EXISTS idx_heartbeat_history_received ON heartbeat_history (received_at);
+      CREATE INDEX IF NOT EXISTS idx_heartbeat_history_probe ON heartbeat_history (probe_ts);
       CREATE TABLE IF NOT EXISTS remote_speedtests (
         result_id INTEGER PRIMARY KEY,
         recorded_at TEXT NOT NULL,
         received_at TEXT NOT NULL,
         payload_json TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_remote_speedtests_received ON remote_speedtests (received_at);
+      CREATE INDEX IF NOT EXISTS idx_remote_speedtests_recorded ON remote_speedtests (recorded_at);
       CREATE TABLE IF NOT EXISTS remote_outages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         started_at TEXT NOT NULL UNIQUE,
@@ -178,6 +200,11 @@ export class IspState {
       let payload: CompactHeartbeat;
       try { payload = await request.json() as CompactHeartbeat; } catch { return response({ error: "Invalid heartbeat" }, 400); }
       return this.state.blockConcurrencyWhile(async () => this.acceptHeartbeat(payload));
+    }
+    if (request.method === "POST" && url.pathname === "/history/sync") {
+      let payload: unknown;
+      try { payload = await request.json(); } catch { return response({ error: "Invalid sync body" }, 400); }
+      return this.state.blockConcurrencyWhile(async () => this.acceptHistorySync(payload));
     }
     if (request.method === "GET" && url.pathname === "/status") return this.statusResponse(url.searchParams.get("isp"));
     if (request.method === "GET" && url.pathname === "/history/latency") return this.latencyHistory(url);
@@ -216,6 +243,7 @@ export class IspState {
         ? stored.pending_notifications
         : legacyPending ? [legacyPending] : [];
       stored.pending_notification = null;
+      if (stored.history_sync === undefined) stored.history_sync = null;
       return stored;
     }
     return defaultState(ispId ?? "isp1");
@@ -229,7 +257,8 @@ export class IspState {
 
   private async acceptHeartbeat(payload: CompactHeartbeat): Promise<Response> {
     let current = await this.load(payload.isp_id);
-    if (current.boot_id === payload.boot_id && payload.seq <= current.last_seq) return response({ ok: true, accepted: false, duplicate: true, status: await this.publicStatus(current) });
+    if (!current.history_sync) current.history_sync = newHistorySync(this.env);
+    if (current.boot_id === payload.boot_id && payload.seq <= current.last_seq) return response({ ok: true, accepted: false, duplicate: true, history_sync: historySyncResponse(current.history_sync), status: await this.publicStatus(current) });
     const receivedAt = nowIso();
     const wasDown = current.presence_state === "down";
     const previousOutage = current.outage_started_at;
@@ -257,7 +286,47 @@ export class IspState {
     const updated = await deliverPending(current, this.env);
     await this.save(updated);
     await this.scheduleNext(updated);
-    return response({ ok: true, accepted: true, duplicate: false, status: await this.publicStatus(updated) });
+    return response({ ok: true, accepted: true, duplicate: false, history_sync: historySyncResponse(updated.history_sync), status: await this.publicStatus(updated) });
+  }
+
+  private async acceptHistorySync(payload: unknown): Promise<Response> {
+    if (!payload || typeof payload !== "object") return response({ error: "Invalid sync body" }, 400);
+    const item = payload as Record<string, unknown>;
+    const ispId = item.isp_id === "isp2" ? "isp2" : item.isp_id === "isp1" ? "isp1" : null;
+    if (!ispId || item.v !== 2 || typeof item.sync_id !== "string") return response({ error: "Invalid sync body" }, 400);
+    const current = await this.load(ispId);
+    if (!current.history_sync) current.history_sync = newHistorySync(this.env);
+    if (item.sync_id !== current.history_sync.request_id) return response({ ok: false, error: "Sync request expired", history_sync: historySyncResponse(current.history_sync) }, 409);
+    const receivedAt = nowIso();
+    const heartbeats = Array.isArray(item.heartbeats) ? item.heartbeats : [];
+    const speedtests = Array.isArray(item.speedtests) ? item.speedtests : [];
+    const outages = Array.isArray(item.outages) ? item.outages : [];
+    for (const value of heartbeats) {
+      if (!value || typeof value !== "object") continue;
+      const beat = value as Record<string, unknown>;
+      if (typeof beat.boot_id !== "string" || !Number.isSafeInteger(beat.seq) || (beat.seq as number) < 1 || typeof beat.probe_ts !== "string" || !Number.isInteger(beat.flags) || !Number.isFinite(beat.latency_ms as number) && beat.latency_ms !== null) continue;
+      this.state.storage.sql.exec("INSERT OR IGNORE INTO heartbeat_history (boot_id, seq, probe_ts, received_at, flags, latency_ms) VALUES (?, ?, ?, ?, ?, ?)", beat.boot_id, beat.seq, beat.probe_ts, receivedAt, beat.flags, beat.latency_ms);
+    }
+    for (const value of speedtests) {
+      if (!value || typeof value !== "object") continue;
+      const speedtest = value as HeartbeatSpeedtest;
+      if (!completeSpeedtest(speedtest) || !Number.isSafeInteger(speedtest.result_id) || typeof speedtest.recorded_at !== "string") continue;
+      this.state.storage.sql.exec("INSERT OR IGNORE INTO remote_speedtests (result_id, recorded_at, received_at, payload_json) VALUES (?, ?, ?, ?)", speedtest.result_id, speedtest.recorded_at, receivedAt, JSON.stringify(speedtest));
+    }
+    for (const value of outages) {
+      if (!value || typeof value !== "object") continue;
+      const outage = value as Record<string, unknown>;
+      if (typeof outage.started_at !== "string" || (outage.ended_at !== null && typeof outage.ended_at !== "string") || (outage.duration_seconds !== null && !Number.isInteger(outage.duration_seconds)) || typeof outage.reason !== "string") continue;
+      this.state.storage.sql.exec("INSERT OR IGNORE INTO remote_outages (started_at, ended_at, duration_seconds, reason) VALUES (?, ?, ?, ?)", outage.started_at, outage.ended_at, outage.duration_seconds, outage.reason);
+    }
+    if (item.complete === true) {
+      current.history_sync.heartbeat_complete = true;
+      current.history_sync.speedtest_complete = true;
+      current.history_sync.outage_complete = true;
+    }
+    this.cleanupHistory();
+    await this.save(current);
+    return response({ ok: true, sync_id: current.history_sync.request_id, complete: item.complete === true, history_sync: historySyncResponse(current.history_sync) });
   }
 
   private async statusResponse(ispId: string | null): Promise<Response> {
@@ -289,26 +358,27 @@ export class IspState {
   private cleanupHistory(): void {
     const beatCutoff = new Date(Date.now() - getRemoteHistoryHours(this.env) * 3600 * 1000).toISOString();
     const speedtestCutoff = new Date(Date.now() - getRemoteSpeedtestHistoryDays(this.env) * 86400 * 1000).toISOString();
-    const outageCutoff = new Date(Date.now() - REMOTE_OUTAGE_RETENTION_DAYS * 86400 * 1000).toISOString();
-    this.state.storage.sql.exec("DELETE FROM heartbeat_history WHERE received_at < ?", beatCutoff);
-    this.state.storage.sql.exec("DELETE FROM remote_speedtests WHERE received_at < ?", speedtestCutoff);
+    const outageCutoff = new Date(Date.now() - getRemoteOutageHistoryDays(this.env) * 86400 * 1000).toISOString();
+    this.state.storage.sql.exec("DELETE FROM heartbeat_history WHERE probe_ts < ?", beatCutoff);
+    this.state.storage.sql.exec("DELETE FROM remote_speedtests WHERE datetime(recorded_at) < datetime(?)", speedtestCutoff);
     this.state.storage.sql.exec("DELETE FROM remote_outages WHERE started_at < ? AND ended_at IS NOT NULL", outageCutoff);
   }
 
   private latencyHistory(url: URL): Response {
     const requestedHours = this.historyHours(url);
     const retentionHours = getRemoteHistoryHours(this.env);
+    const hours = Math.min(requestedHours, retentionHours);
     const retentionSince = new Date(Date.now() - retentionHours * 3600 * 1000).toISOString();
-    const since = new Date(Date.now() - Math.min(requestedHours, retentionHours) * 3600 * 1000).toISOString();
-    const rows = this.state.storage.sql.exec<RemoteBeatRow>("SELECT probe_ts, received_at, flags, latency_ms FROM heartbeat_history WHERE received_at >= ? ORDER BY probe_ts ASC", since).toArray();
-    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(received_at) AS oldest FROM heartbeat_history WHERE received_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
+    const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+    const rows = this.state.storage.sql.exec<RemoteBeatRow>("SELECT probe_ts, received_at, flags, latency_ms FROM heartbeat_history WHERE probe_ts >= ? ORDER BY probe_ts ASC", since).toArray();
+    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(probe_ts) AS oldest FROM heartbeat_history WHERE probe_ts >= ?", retentionSince).toArray()[0]?.oldest ?? null;
     const points = rows.map((row) => ({ recorded_at: row.probe_ts, latency_ms: row.latency_ms }));
     const gaps = this.heartbeatGaps(rows);
     const ispId = this.ispId(url);
     const availableHours = oldest ? Math.min(retentionHours, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 3600000))) : 0;
     const result: Record<string, unknown> = { isp_id: ispId, label: getIspLabel(this.env, ispId), points, gaps, granularity: "sample", history_available: true, retention_hours: retentionHours, available_hours: availableHours };
-    if (url.searchParams.has("hours")) result.hours = requestedHours;
-    else result.days = Math.max(1, Math.ceil(requestedHours / 24));
+    if (url.searchParams.has("hours")) result.hours = hours;
+    else result.days = Math.max(1, Math.ceil(hours / 24));
     return response(result);
   }
 
@@ -336,11 +406,14 @@ export class IspState {
   }
 
   private outageHistory(url: URL): Response {
-    const days = this.historyDays(url);
+    const retentionDays = getRemoteOutageHistoryDays(this.env);
+    const days = Math.min(this.historyDays(url), retentionDays);
     const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
+    const retentionSince = new Date(Date.now() - retentionDays * 86400 * 1000).toISOString();
     const now = nowIso();
     const ispId = this.ispId(url);
     const rows = this.state.storage.sql.exec<RemoteOutageRow>("SELECT id, started_at, ended_at, duration_seconds, reason FROM remote_outages WHERE started_at <= ? AND (ended_at IS NULL OR ended_at >= ?) ORDER BY started_at DESC", now, since).toArray();
+    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(started_at) AS oldest FROM remote_outages WHERE started_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
     const outages = rows.map((row) => ({ id: row.id, started_at: row.started_at, ended_at: row.ended_at, duration_seconds: row.duration_seconds, reason: row.reason, ongoing: row.ended_at === null }));
     const window = Math.max(1, days * 86400);
     let down = 0;
@@ -349,20 +422,22 @@ export class IspState {
       const end = Math.min(Date.parse(now), row.ended_at ? Date.parse(row.ended_at) : Date.now());
       if (Number.isFinite(start) && Number.isFinite(end)) down += Math.max(0, Math.floor((end - start) / 1000));
     }
-    return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days, uptime_percent: Math.round(Math.max(0, window - down) / window * 10000) / 100, outages, history_available: true, retention_days: REMOTE_OUTAGE_RETENTION_DAYS });
+    const availableDays = oldest ? Math.min(retentionDays, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 86400000))) : 0;
+    return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days, uptime_percent: Math.round(Math.max(0, window - down) / window * 10000) / 100, outages, history_available: true, retention_days: retentionDays, available_days: availableDays });
   }
 
   private speedtestHistory(url: URL): Response {
     const requestedDays = this.historyDays(url);
     const retentionDays = getRemoteSpeedtestHistoryDays(this.env);
+    const days = Math.min(requestedDays, retentionDays);
     const retentionSince = new Date(Date.now() - retentionDays * 86400 * 1000).toISOString();
-    const since = new Date(Date.now() - Math.min(requestedDays, retentionDays) * 86400 * 1000).toISOString();
+    const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
     const ispId = this.ispId(url);
-    const rows = this.state.storage.sql.exec<RemoteSpeedtestRow>("SELECT payload_json FROM remote_speedtests WHERE received_at >= ? ORDER BY recorded_at ASC", since).toArray();
-    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(received_at) AS oldest FROM remote_speedtests WHERE received_at >= ?", retentionSince).toArray()[0]?.oldest ?? null;
+    const rows = this.state.storage.sql.exec<RemoteSpeedtestRow>("SELECT payload_json FROM remote_speedtests WHERE datetime(recorded_at) >= datetime(?) ORDER BY datetime(recorded_at) ASC", since).toArray();
+    const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(recorded_at) AS oldest FROM remote_speedtests WHERE datetime(recorded_at) >= datetime(?)", retentionSince).toArray()[0]?.oldest ?? null;
     const results = rows.map((row) => JSON.parse(row.payload_json) as HeartbeatSpeedtest).filter((result) => completeSpeedtest(result));
     const availableDays = oldest ? Math.min(retentionDays, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 86400000))) : 0;
-    return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days: requestedDays, results, history_available: true, retention_days: retentionDays, available_days: availableDays });
+    return response({ isp_id: ispId, label: getIspLabel(this.env, ispId), days, results, history_available: true, retention_days: retentionDays, available_days: availableDays });
   }
 
   private historyHours(url: URL): number {

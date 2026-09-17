@@ -27,9 +27,10 @@ Set `STATUS_PAGE_URL` in the Cloudflare dashboard if notification links are need
 - `GET /api/history/outages` returns bounded recent remote outages.
 - `GET /api/history/speedtests` returns bounded recent speedtest summaries.
 
-Remote heartbeat history is retained for `REMOTE_HISTORY_HOURS` (24 hours by
+Remote heartbeat history is retained for `REMOTE_HISTORY_HOURS` (48 hours by
 default). Remote speedtest history is retained for
-`REMOTE_SPEEDTEST_HISTORY_DAYS` (30 days by default). The local history app
+`REMOTE_SPEEDTEST_HISTORY_DAYS` (7 days by default), and outage history for
+`REMOTE_OUTAGE_HISTORY_DAYS` (7 days by default). The local history app
 remains the source of truth for long-term charts and logs.
 
 The v2 signature covers:
