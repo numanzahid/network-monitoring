@@ -76,6 +76,28 @@ def check_public_ip(url: str, timeout: float) -> str | None:
         return None
 
 
+def get_check_targets() -> dict[str, str]:
+    provider = os.environ.get("CHECK_PROVIDER", "google").strip().lower()
+    profiles = {
+        "cloudflare": {
+            "DNS_HOST": "1.1.1.1",
+            "HTTPS_CHECK_URL": "https://1.1.1.1/cdn-cgi/trace",
+            "INTERNET_CHECK_URL": "https://cloudflare.com/cdn-cgi/trace",
+            "TRACEROUTE_TARGET": "1.1.1.1",
+        },
+        "google": {
+            "DNS_HOST": "8.8.8.8",
+            "HTTPS_CHECK_URL": "https://www.google.com/generate_204",
+            "INTERNET_CHECK_URL": "https://www.google.com/generate_204",
+            "TRACEROUTE_TARGET": "8.8.8.8",
+        },
+    }
+    profile = profiles.get(provider)
+    if profile is None:
+        raise SystemExit(f"Unsupported CHECK_PROVIDER: {provider} (use cloudflare or google)")
+    return {name: os.environ.get(name) or default for name, default in profile.items()}
+
+
 def lookup_network_identity(public_ipv4: str | None, timeout: float) -> dict[str, str | None]:
     if not public_ipv4:
         return {"isp_name": None, "network_asn": None}
@@ -290,15 +312,16 @@ def sync_history(local_base: str, local_token: str, worker_base: str, secret: st
 
 
 def build_measurements(timeout: float) -> tuple[int, int | None, dict[str, Any], dict[str, Any] | None]:
-    dns_ok = check_dns(env("DNS_HOST", "1.1.1.1"), timeout)
-    https_ok, latency = check_https(env("HTTPS_CHECK_URL", "https://1.1.1.1/cdn-cgi/trace"), timeout)
+    targets = get_check_targets()
+    dns_ok = check_dns(targets["DNS_HOST"], timeout)
+    https_ok, latency = check_https(targets["HTTPS_CHECK_URL"], timeout)
     public_ipv4 = check_public_ip(env("PUBLIC_IP_URL", "https://ipv4.icanhazip.com"), timeout)
     try:
-        internet_ok = requests.get(env("INTERNET_CHECK_URL", "https://cloudflare.com/cdn-cgi/trace"), timeout=timeout).ok
+        internet_ok = requests.get(targets["INTERNET_CHECK_URL"], timeout=timeout).ok
     except requests.RequestException:
         internet_ok = False
     identity = lookup_network_identity(public_ipv4, timeout)
-    traceroute = get_traceroute(env("TRACEROUTE_TARGET", "1.1.1.1"), env_int("TRACEROUTE_MAX_HOPS", 8), env_int("TRACEROUTE_INTERVAL_SECONDS", 900), float(os.environ.get("TRACEROUTE_TIMEOUT_SECONDS", "45")))
+    traceroute = get_traceroute(targets["TRACEROUTE_TARGET"], env_int("TRACEROUTE_MAX_HOPS", 8), env_int("TRACEROUTE_INTERVAL_SECONDS", 900), float(os.environ.get("TRACEROUTE_TIMEOUT_SECONDS", "45")))
     speedtest = fetch_latest_speedtest(env("TRACKER_IP"), os.environ.get("SPEEDTEST_API_TOKEN", ""), timeout)
     flags = (1 if internet_ok else 0) | (2 if dns_ok else 0) | (4 if https_ok else 0)
     return flags, latency, {"public_ipv4": public_ipv4, "isp_name": identity["isp_name"], "network_asn": identity["network_asn"], "traceroute": traceroute}, speedtest

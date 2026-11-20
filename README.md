@@ -51,6 +51,11 @@ Each probe checks internet reachability, DNS, HTTPS latency, public IPv4, and
 the latest result from its matching Speedtest Tracker. It signs a JSON
 heartbeat and sends it to the configured receiver at the configured interval.
 
+Set `CHECK_PROVIDER=google` or `CHECK_PROVIDER=cloudflare` in each probe
+environment file. The selected profile controls the DNS, HTTPS latency,
+internet reachability, and traceroute targets. The default is Google; the
+individual target variables can override a profile when needed.
+
 The receiver should validate the ISP identity, timestamp, nonce, signature,
 and payload before storing it.
 

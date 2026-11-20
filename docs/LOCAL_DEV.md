@@ -31,3 +31,8 @@ The probes send compact beat data to the local app when `LOCAL_URL` is configure
 ## v2 behavior
 
 Each ISP has its own persistent sequence. Flags and latency are sent every interval. Network identity, traceroute, and speed-test blocks are sent when they change or after the metadata keepalive interval. The Worker stores only live state in its per-ISP Durable Object.
+
+Probe target selection is controlled by `CHECK_PROVIDER=google` or
+`CHECK_PROVIDER=cloudflare`. Google uses `8.8.8.8` and Google's HTTPS
+generate-204 endpoint; Cloudflare uses `1.1.1.1` and Cloudflare's trace
+endpoint. The four target variables remain available as optional overrides.
