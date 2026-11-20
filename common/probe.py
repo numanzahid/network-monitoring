@@ -45,6 +45,12 @@ def normalize_url(url: str, path: str) -> str:
 
 
 def check_dns(hostname: str, timeout: float) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return False
     previous = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)
     try:
@@ -80,16 +86,16 @@ def get_check_targets() -> dict[str, str]:
     provider = os.environ.get("CHECK_PROVIDER", "google").strip().lower()
     profiles = {
         "cloudflare": {
-            "DNS_HOST": "1.1.1.1",
-            "HTTPS_CHECK_URL": "https://1.1.1.1/cdn-cgi/trace",
+            "DNS_HOST": "www.cloudflare.com",
+            "HTTPS_CHECK_URL": "https://cloudflare.com/cdn-cgi/trace",
             "INTERNET_CHECK_URL": "https://cloudflare.com/cdn-cgi/trace",
-            "TRACEROUTE_TARGET": "1.1.1.1",
+            "TRACEROUTE_TARGET": "9.9.9.9",
         },
         "google": {
-            "DNS_HOST": "8.8.8.8",
+            "DNS_HOST": "www.google.com",
             "HTTPS_CHECK_URL": "https://www.google.com/generate_204",
             "INTERNET_CHECK_URL": "https://www.google.com/generate_204",
-            "TRACEROUTE_TARGET": "8.8.8.8",
+            "TRACEROUTE_TARGET": "9.9.9.9",
         },
     }
     profile = profiles.get(provider)
@@ -146,7 +152,7 @@ def get_traceroute(target: str, max_hops: int, interval: int, timeout: float) ->
     cached_lines: list[str] | None = None
     try:
         cached = json.loads(cache.read_text()) if cache.exists() else None
-        if cached and isinstance(cached.get("lines"), list):
+        if cached and cached.get("target") == target and isinstance(cached.get("lines"), list):
             cached_lines = [line for line in cached["lines"] if isinstance(line, str)]
             if cached_lines and cached.get("target") == target and time.time() - float(cached.get("at", 0)) < interval:
                 return cached_lines
