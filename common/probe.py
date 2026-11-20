@@ -148,14 +148,14 @@ def get_traceroute(target: str, max_hops: int, interval: int, timeout: float) ->
         cached = json.loads(cache.read_text()) if cache.exists() else None
         if cached and isinstance(cached.get("lines"), list):
             cached_lines = [line for line in cached["lines"] if isinstance(line, str)]
-            if cached_lines and time.time() - float(cached.get("at", 0)) < interval:
+            if cached_lines and cached.get("target") == target and time.time() - float(cached.get("at", 0)) < interval:
                 return cached_lines
     except (OSError, ValueError, TypeError):
         pass
     lines = run_traceroute(target, max_hops, timeout)
     if lines:
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps({"at": time.time(), "lines": lines}))
+        cache.write_text(json.dumps({"at": time.time(), "target": target, "lines": lines}))
         return lines
     return cached_lines
 
