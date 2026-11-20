@@ -1,12 +1,12 @@
-import { getIspLabel, getMissedBeatThreshold, getProbeIntervalSeconds, getRemoteHistoryHours, getRemoteOutageHistoryDays, getRemoteSpeedtestHistoryDays, isNotifyEnabled } from "./config";
-import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, HistorySyncState, PresenceNotification, PresenceState } from "./types";
+import { getIspLabel, getMissedBeatThreshold, getProbeIntervalSeconds, getRemoteHistoryHours, getRemoteOutageHistoryDays, getRemoteSpeedtestHistoryDays } from "./config";
+import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, HistorySyncState, PresenceState } from "./types";
 
 function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 function defaultState(ispId: CompactHeartbeat["isp_id"]): PresenceState {
-  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, transition_number: 0, pending_notifications: [], pending_notification: null, last_notification_id: null, last_notification_error: null, notification_retry_at: null, history_sync: null };
+  return { isp_id: ispId, boot_id: null, last_seq: 0, last_beat_probe_at: null, last_beat_recv_at: null, flags: null, latency_ms: null, metadata: null, latest_speedtest: null, presence_state: "unknown", health_state: "unknown", missed_beats: 0, outage_started_at: null, history_sync: null };
 }
 
 function completeSpeedtest(value: HeartbeatSpeedtest | null | undefined): value is HeartbeatSpeedtest {
@@ -42,56 +42,6 @@ function historySyncResponse(sync: HistorySyncState | null): Record<string, unkn
   };
 }
 
-function formatDuration(seconds: number): string {
-  const wholeSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(wholeSeconds / 3600);
-  const minutes = Math.floor((wholeSeconds % 3600) / 60);
-  const rest = wholeSeconds % 60;
-  if (hours) return `${hours}h ${minutes}m`;
-  if (minutes) return `${minutes}m ${rest}s`;
-  return `${rest}s`;
-}
-
-function normalizePendingNotifications(state: PresenceState): void {
-  if (!state.pending_notifications.length) return;
-  if (state.presence_state === "up") {
-    const down = state.pending_notifications.find((item) => item.type === "down");
-    if (down) {
-      state.pending_notifications = [{
-        id: `${state.isp_id}-${state.transition_number}-recovered`,
-        type: "up",
-        started_at: down.started_at,
-        ended_at: state.last_beat_recv_at ?? nowIso(),
-        reason: down.reason,
-        missed_beats: down.missed_beats,
-        last_beat_recv_at: down.last_beat_recv_at,
-        latency_ms: state.latency_ms,
-      }];
-    } else if (state.pending_notifications.length > 1) {
-      state.pending_notifications = [state.pending_notifications.at(-1)!];
-    }
-    return;
-  }
-  if (state.presence_state === "down") {
-    const down = [...state.pending_notifications].reverse().find((item) => item.type === "down");
-    state.pending_notifications = down ? [down] : [];
-  }
-}
-
-interface NotificationPayload {
-  title: string;
-  body: string;
-  priority: string;
-  tags: string;
-  clickUrl?: string;
-}
-
-interface NotificationResult {
-  ok: boolean;
-  error?: string;
-  retry_after_seconds?: number;
-}
-
 interface RemoteBeatRow {
   [key: string]: string | number | null;
   probe_ts: string;
@@ -124,94 +74,6 @@ function outageDurationSeconds(row: RemoteOutageRow): number | null {
 function isMeaningfulOutage(row: RemoteOutageRow, minimumSeconds: number): boolean {
   const duration = outageDurationSeconds(row);
   return duration === null || duration >= minimumSeconds;
-}
-
-async function sendNtfy(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
-  if (!env.NTFY_TOPIC) return { ok: false, error: "ntfy_topic_missing" };
-  const headers = new Headers({ "Content-Type": "text/plain; charset=utf-8", Title: payload.title, Priority: payload.priority, Tags: payload.tags });
-  if (payload.clickUrl) headers.set("Click", payload.clickUrl);
-  if (env.NTFY_AUTH_TOKEN) headers.set("Authorization", `Bearer ${env.NTFY_AUTH_TOKEN}`);
-  try {
-    const result = await fetch(`${env.NTFY_SERVER.replace(/\/$/, "")}/${encodeURIComponent(env.NTFY_TOPIC)}`, { method: "POST", headers, body: payload.body, signal: AbortSignal.timeout(5000) });
-    if (result.ok) return { ok: true };
-    const retryAfter = result.status === 429 ? Number(result.headers.get("Retry-After") ?? "") : NaN;
-    return { ok: false, error: `ntfy_http_${result.status}`, retry_after_seconds: Number.isFinite(retryAfter) && retryAfter >= 0 ? Math.min(3600, retryAfter) : result.status === 429 ? 300 : 60 };
-  } catch {
-    return { ok: false, error: "ntfy_fetch_failed", retry_after_seconds: 60 };
-  }
-}
-
-async function sendTelegram(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return { ok: false, error: "telegram_config_missing" };
-  try {
-    const result = await fetch(`https://api.telegram.org/bot${encodeURIComponent(env.TELEGRAM_BOT_TOKEN)}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `${payload.title}\n\n${payload.body}` }),
-      signal: AbortSignal.timeout(5000),
-    });
-    return result.ok ? { ok: true } : { ok: false, error: `telegram_http_${result.status}`, retry_after_seconds: 60 };
-  } catch {
-    return { ok: false, error: "telegram_fetch_failed", retry_after_seconds: 60 };
-  }
-}
-
-async function sendDiscord(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
-  if (!env.DISCORD_WEBHOOK_URL) return { ok: false, error: "discord_config_missing" };
-  try {
-    const result = await fetch(env.DISCORD_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: `**${payload.title}**\n${payload.body}` }),
-      signal: AbortSignal.timeout(5000),
-    });
-    return result.ok ? { ok: true } : { ok: false, error: `discord_http_${result.status}`, retry_after_seconds: 60 };
-  } catch {
-    return { ok: false, error: "discord_fetch_failed", retry_after_seconds: 60 };
-  }
-}
-
-async function sendNotification(env: Env, payload: NotificationPayload): Promise<NotificationResult> {
-  if (!isNotifyEnabled(env)) return { ok: true };
-  const channels = (env.NOTIFIER_CHANNELS || "ntfy").split(",").map((channel) => channel.trim().toLowerCase()).filter(Boolean);
-  if (!channels.length) return { ok: true };
-  const results = await Promise.all(channels.map((channel) => {
-    if (channel === "ntfy") return sendNtfy(env, payload);
-    if (channel === "telegram") return sendTelegram(env, payload);
-    if (channel === "discord") return sendDiscord(env, payload);
-    return Promise.resolve({ ok: true });
-  }));
-  return results.find((result) => !result.ok) ?? { ok: true };
-}
-
-async function deliverPending(state: PresenceState, env: Env): Promise<PresenceState> {
-  normalizePendingNotifications(state);
-  if (state.notification_retry_at && Date.parse(state.notification_retry_at) > Date.now()) return state;
-  while (state.pending_notifications.length) {
-    const pending = state.pending_notifications[0];
-    const label = getIspLabel(env, state.isp_id);
-    const isDown = pending.type === "down";
-    const missedBeats = pending.missed_beats ?? state.missed_beats;
-    const lastReceive = pending.last_beat_recv_at ?? state.last_beat_recv_at;
-    const latency = pending.latency_ms ?? state.latency_ms;
-    const duration = pending.ended_at ? formatDuration(Math.max(0, (Date.parse(pending.ended_at) - Date.parse(pending.started_at)) / 1000)) : `${missedBeats} missed beat${missedBeats === 1 ? "" : "s"}`;
-    const delayFrom = pending.ended_at ?? pending.started_at;
-    const deliveryDelay = Number.isFinite(Date.parse(delayFrom)) ? formatDuration(Math.max(0, (Date.now() - Date.parse(delayFrom)) / 1000)) : "unknown";
-    const body = isDown
-      ? `Current state when sent: DOWN.\nDetected at: ${pending.started_at}\nMissed beats at detection: ${missedBeats}\nLast receive: ${lastReceive ?? "unknown"}\nLast latency: ${latency === null ? "unknown" : `${latency} ms`}\nNotification delay: ${deliveryDelay}.`
-      : `Current state when sent: UP.\nOutage: ${pending.started_at} to ${pending.ended_at ?? "unknown"}\nDuration: ${duration}\nLast latency: ${latency === null ? "unknown" : `${latency} ms`}\nNotification delay: ${deliveryDelay}.`;
-    const delivery = await sendNotification(env, { title: `${isDown ? "[DOWN]" : "[RECOVERED]"} ${label}`, body, priority: isDown ? env.NTFY_PRIORITY_DOWN : env.NTFY_PRIORITY_UP, tags: `${state.isp_id},${isDown ? "warning" : "white_check_mark"}`, clickUrl: env.STATUS_PAGE_URL || undefined });
-    if (!delivery.ok) {
-      state.last_notification_error = delivery.error ?? "notification_failed";
-      state.notification_retry_at = new Date(Date.now() + (delivery.retry_after_seconds ?? 60) * 1000).toISOString();
-      break;
-    }
-    state.last_notification_error = null;
-    state.notification_retry_at = null;
-    state.last_notification_id = pending.id;
-    state.pending_notifications.shift();
-  }
-  return state;
 }
 
 export class IspState {
@@ -281,29 +143,18 @@ export class IspState {
       if (current.missed_beats >= threshold && current.presence_state !== "down") {
         current.presence_state = "down";
         current.outage_started_at = new Date(Date.parse(current.last_beat_recv_at) + threshold * interval * 1000).toISOString();
-        current.transition_number += 1;
         this.state.storage.sql.exec("INSERT OR IGNORE INTO remote_outages (started_at, reason) VALUES (?, ?)", current.outage_started_at, "missed_heartbeat");
-        current.pending_notifications.push({ id: `${current.isp_id}-${current.transition_number}-down`, type: "down", started_at: current.outage_started_at, reason: "missed_heartbeat", missed_beats: current.missed_beats, last_beat_recv_at: current.last_beat_recv_at, latency_ms: current.latency_ms });
       }
       this.cleanupHistory();
-      const updated = await deliverPending(current, this.env);
-      await this.save(updated);
-      await this.scheduleNext(updated);
+      await this.save(current);
+      await this.scheduleNext(current);
     });
   }
 
   private async load(ispId?: CompactHeartbeat["isp_id"]): Promise<PresenceState> {
     const stored = await this.state.storage.get<PresenceState>("state");
     if (stored) {
-      const legacyPending = stored.pending_notification ?? null;
-      stored.pending_notifications = Array.isArray(stored.pending_notifications)
-        ? stored.pending_notifications
-        : legacyPending ? [legacyPending] : [];
-      stored.pending_notification = null;
-      if (stored.last_notification_error === undefined) stored.last_notification_error = null;
-      if (stored.notification_retry_at === undefined) stored.notification_retry_at = null;
       if (stored.history_sync === undefined) stored.history_sync = null;
-      normalizePendingNotifications(stored);
       return stored;
     }
     return defaultState(ispId ?? "isp1");
@@ -340,13 +191,11 @@ export class IspState {
         this.state.storage.sql.exec("INSERT OR IGNORE INTO remote_outages (started_at, reason) VALUES (?, ?)", previousOutage, "missed_heartbeat");
         this.state.storage.sql.exec("UPDATE remote_outages SET ended_at = ?, duration_seconds = ? WHERE started_at = ? AND ended_at IS NULL", receivedAt, duration, previousOutage);
       }
-      current.pending_notifications.push({ id: `${current.isp_id}-${current.transition_number}-up`, type: "up", started_at: previousOutage ?? receivedAt, ended_at: receivedAt, latency_ms: current.latency_ms });
       current.outage_started_at = null;
     }
-    const updated = await deliverPending(current, this.env);
-    await this.save(updated);
-    await this.scheduleNext(updated);
-    return response({ ok: true, accepted: true, duplicate: false, history_sync: historySyncResponse(updated.history_sync), status: await this.publicStatus(updated) });
+    await this.save(current);
+    await this.scheduleNext(current);
+    return response({ ok: true, accepted: true, duplicate: false, history_sync: historySyncResponse(current.history_sync), status: await this.publicStatus(current) });
   }
 
   private async acceptHistorySync(payload: unknown): Promise<Response> {
@@ -579,9 +428,6 @@ export class IspState {
       open_heartbeat_gap: !isUp && state.last_beat_recv_at ? { started_at: state.outage_started_at ?? state.last_beat_recv_at } : null,
       ongoing_outage: !isUp && state.outage_started_at ? { started_at: state.outage_started_at, reason: "missed_heartbeat" } : null,
       latest_speedtest: this.latestSpeedtest(state),
-      notify_state: state.pending_notifications.length ? "pending" : "clear",
-      notification_error: state.last_notification_error,
-      notification_retry_at: state.notification_retry_at,
     };
   }
 }

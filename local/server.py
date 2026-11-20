@@ -311,7 +311,7 @@ class Store:
                 "traceroute": metadata.get("traceroute"),
                 "latest_speedtest": speedtest,
             })
-        return {"generated_at": iso_now(), "isps": isps, "status_page_url": "", "history_available": True}
+        return {"generated_at": iso_now(), "isps": isps, "history_available": True}
 
     def sync_export(self, request: dict) -> dict:
         isp = request.get("isp_id")

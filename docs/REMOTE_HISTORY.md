@@ -40,5 +40,4 @@ acknowledgement, exports bounded batches from the local database, and sends
 them to the authenticated sync endpoint. The remote marks the request
 complete after the local source has been fully scanned for the requested
 window, even when the local database itself started less than 48 hours or 7
-days ago. Backfill updates history tables only and does not affect live state
-or notifications.
+days ago. Backfill updates history tables only and does not affect live state.

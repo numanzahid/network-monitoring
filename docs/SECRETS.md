@@ -3,7 +3,7 @@
 This file lists secret names and where they belong. It intentionally contains
 no secret values. All `.env` and `.dev.vars` files are ignored by Git.
 
-There are **11 unique secret variable names** in the system. Some names have
+There are **6 unique secret variable names** in the system. Some names have
 one value per ISP or are copied into more than one service.
 
 ## cloudflare worker secrets
@@ -15,19 +15,6 @@ Secrets > Secrets**.
 | --- | --- | --- | --- |
 | `PROBE_SECRET_ISP1` | Yes | One value for ISP1 | HMAC authentication for ISP1 heartbeats |
 | `PROBE_SECRET_ISP2` | Yes | One value for ISP2 | HMAC authentication for ISP2 heartbeats |
-| `NTFY_TOPIC` | Yes when ntfy is enabled | One notification topic | Destination topic on the configured ntfy server |
-| `NTFY_AUTH_TOKEN` | Optional | ntfy | Authentication for a protected ntfy topic |
-| `TELEGRAM_BOT_TOKEN` | Optional | Telegram | Bot credential when Telegram is enabled |
-| `TELEGRAM_CHAT_ID` | Optional | Telegram | Destination chat when Telegram is enabled |
-| `DISCORD_WEBHOOK_URL` | Optional | Discord | Webhook destination when Discord is enabled |
-
-The current committed configuration enables `ntfy` through
-`NOTIFIER_CHANNELS = "ntfy"`. Telegram and Discord are available only when
-their secrets are added and their channel names are enabled.
-
-The non-secret notification settings are in
-[`worker/wrangler.toml`](../worker/wrangler.toml), including `NTFY_SERVER`,
-`NOTIFY_ENABLED`, priorities, and channel selection.
 
 ## local history service
 
@@ -97,7 +84,6 @@ in ignored environment files or deployment settings:
 - `TRACKER_IP`
 - `TRACKER_MAC`
 - `APP_URL`
-- `STATUS_PAGE_URL`
 
 Never commit actual values for these settings, even though they are not
 credentials.

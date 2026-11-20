@@ -1,6 +1,6 @@
 # cloudflare worker
 
-The Worker receives compact signed heartbeats and keeps live presence state in one Durable Object per ISP. It serves the live status API, bounded recent history, and transition notifications. Detailed long-term history is stored by the local history service.
+The Worker receives compact signed heartbeats and keeps live presence state in one Durable Object per ISP. It serves the live status API and bounded recent history. Detailed long-term history is stored by the local history service.
 
 ## setup
 
@@ -14,10 +14,6 @@ test values local. Production secrets belong in the Cloudflare dashboard:
 
 - `PROBE_SECRET_ISP1`
 - `PROBE_SECRET_ISP2`
-- `NTFY_TOPIC`
-- `NTFY_AUTH_TOKEN` (optional)
-
-Set `STATUS_PAGE_URL` in the Cloudflare dashboard if notification links are needed.
 
 ## api
 

@@ -16,10 +16,8 @@ Store these as Cloudflare secrets:
 
 - `PROBE_SECRET_ISP1`
 - `PROBE_SECRET_ISP2`
-- `NTFY_TOPIC`
-- `NTFY_AUTH_TOKEN` (optional)
 
-Set deployment-specific notification values in the Cloudflare dashboard. Do not commit receiver URLs, probe secrets, notification topics, IP addresses, tokens, or local hostnames.
+Do not commit receiver URLs, probe secrets, IP addresses, tokens, or local hostnames.
 
 After deployment, verify:
 

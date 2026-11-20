@@ -4,7 +4,7 @@ Reviewed after the pull that moved the repository to `726809e` on 2026-09-16.
 
 ## Current system
 
-The system has two probes, one per ISP. Each probe runs checks for Internet reachability, DNS, HTTPS latency, public IP, and traceroute, then sends a signed heartbeat to the Cloudflare Worker. The Worker authenticates the heartbeat, stores measurements, updates current ISP state, opens or closes outages and heartbeat gaps, and sends ntfy notifications. A one-minute cron evaluates stale probes and retries pending notifications. The public Worker assets read current status and historical data through the Worker API.
+The system has two probes, one per ISP. Each probe runs checks for Internet reachability, DNS, HTTPS latency, public IP, and traceroute, then sends a signed heartbeat to the Cloudflare Worker. The Worker authenticates the heartbeat, stores measurements, updates current ISP state, and opens or closes outages and heartbeat gaps. The public Worker assets read current status and historical data through the Worker API.
 
 The system is operationally healthy based on the previous live observation: both probes and both speed-test containers were running without restarts or OOM kills, both ISPs were currently UP, and a 40-second status sample showed heartbeat ages advancing. The probe logs showed intermittent network delivery failures, especially for ISP2, which matched recorded outages rather than an application crash.
 
@@ -48,15 +48,13 @@ The generated demo SQL is a very large tracked artifact and contains randomized 
 
 8. **Build pinned probe images.** The probe compose files install apt and pip packages during every container start. Build a version-pinned image, add container health checks, and make the runtime image independent of package-repository availability.
 
-9. **Correct disabled-notification accounting.** When notifications are disabled, `sendNotification` returns success (`worker/src/notify/index.ts:126`). The caller can then mark an outage as delivered even though no notification was sent. Treat disabled as a deliberate skipped state, or do not mark the outage delivered.
+9. **Protect local credentials.** The probe `.env` files contain sensitive configuration and should be mode `0600`; the speed-test environment files were observed with less restrictive permissions. Rotate any credentials that have been exposed through shared files or logs.
 
-10. **Protect local credentials.** The probe `.env` files contain sensitive configuration and should be mode `0600`; the speed-test environment files were observed with less restrictive permissions. Rotate any credentials that have been exposed through shared files or logs.
+10. **Separate production and development dependencies.** Production dependencies were clean in the earlier audit, while the full development tree reported three high advisories through the Wrangler/Miniflare/sharp/libheif path. Upgrade Wrangler and its dependency tree in a controlled branch and rerun the audit.
 
-11. **Separate production and development dependencies.** Production dependencies were clean in the earlier audit, while the full development tree reported three high advisories through the Wrangler/Miniflare/sharp/libheif path. Upgrade Wrangler and its dependency tree in a controlled branch and rerun the audit.
+11. **Remove duplicated probe code.** `isp1/probe/probe.py` and `isp2/probe/probe.py` are identical. Share one implementation and keep ISP-specific configuration in environment variables.
 
-12. **Remove duplicated probe code.** `isp1/probe/probe.py` and `isp2/probe/probe.py` are identical. Share one implementation and keep ISP-specific configuration in environment variables.
-
-13. **Harden frontend third-party loading.** Chart.js and its date adapter load from jsDelivr. Pinning is already present, but a local asset or a documented CSP/SRI policy would reduce dashboard dependence on a third-party CDN.
+12. **Harden frontend third-party loading.** Chart.js and its date adapter load from jsDelivr. Pinning is already present, but a local asset or a documented CSP/SRI policy would reduce dashboard dependence on a third-party CDN.
 
 ## Validation performed
 
@@ -68,30 +66,29 @@ The generated demo SQL is a very large tracked artifact and contains randomized 
 
 ## Plan to remove D1 while preserving behavior
 
-Removing D1 means replacing the Worker’s durable relational storage. The probes, public API paths, dashboard JSON shape, cron behavior, and notification behavior can remain unchanged if the storage interface stays behind the Worker. Cloudflare KV alone is not a suitable replacement because it is eventually consistent and does not provide the relational time-window queries or transactions this application needs. R2 is useful for archive files but is a poor primary database. Durable Objects can provide serialized state, but rebuilding history indexes and range queries there would be a larger redesign.
+Removing D1 means replacing the Worker’s durable relational storage. The probes, public API paths, dashboard JSON shape, and outage behavior can remain unchanged if the storage interface stays behind the Worker. Cloudflare KV alone is not a suitable replacement because it is eventually consistent and does not provide the relational time-window queries or transactions this application needs. R2 is useful for archive files but is a poor primary database. Durable Objects can provide serialized state, but rebuilding history indexes and range queries there would be a larger redesign.
 
 The recommended target is a small HTTPS storage service backed by PostgreSQL or libSQL/Turso. It should expose purpose-built operations rather than arbitrary SQL, authenticate the Worker with a secret or HMAC, and execute heartbeat ingestion transactionally. The Worker remains the public API and the storage service is an internal dependency.
 
 ### Phase 1: freeze the contract and inventory data
 
-Document the existing API responses and notification transitions. Export a verified D1 backup. Record row counts, the oldest retained timestamp, open outages, open heartbeat gaps, current ISP status, pending notifications, and the nonce retention window.
+Document the existing API responses and outage transitions. Export a verified D1 backup. Record row counts, the oldest retained timestamp, open outages, open heartbeat gaps, current ISP status, and the nonce retention window.
 
 The replacement must cover these logical tables:
 
 | Current D1 data | Replacement responsibility |
 | --- | --- |
 | `isp_status` | Current state, counters, last heartbeat, checks, IP, traceroute, latest speed test |
-| `outage_events` | Open/closed outage lifecycle and notification markers |
+| `outage_events` | Open/closed outage lifecycle |
 | `heartbeat_gaps` | Silent-period lifecycle and durations |
 | `latency_samples` | Recent raw latency points |
 | `latency_hourly` | Hourly min/max/count chart aggregates |
 | `speedtest_results` | Historical speed-test results |
 | `probe_nonces` | Replay protection with a unique nonce and expiry |
-| `notification_log` | Delivery attempts and errors |
 
 ### Phase 2: introduce a storage interface
 
-Add a repository interface in the Worker so `outages.ts`, `notify/index.ts`, the cron handler, and the API handlers depend on operations such as `acceptHeartbeat`, `getStatus`, `listHistory`, `listPendingNotifications`, and `runCleanup`. Keep a D1 adapter temporarily. This separates the application contract from D1 and makes the replacement testable without the live service.
+Add a repository interface in the Worker so the outage and API handlers depend on operations such as `acceptHeartbeat`, `getStatus`, `listHistory`, and `runCleanup`. Keep a D1 adapter temporarily. This separates the application contract from D1 and makes the replacement testable without the live service.
 
 The most important replacement operation is `acceptHeartbeat`. It should, in one transaction:
 
@@ -105,9 +102,9 @@ The most important replacement operation is `acceptHeartbeat`. It should, in one
 
 ### Phase 3: build and verify the new store
 
-Create the relational schema with UTC timestamps, indexes on `(isp_id, recorded_at)`, `(isp_id, started_at)`, pending notification state, and nonce uniqueness. Give the storage service a health endpoint, bounded request timeouts, structured errors, and backups. Import the D1 export, then compare counts and representative API responses between D1 and the new store.
+Create the relational schema with UTC timestamps, indexes on `(isp_id, recorded_at)` and `(isp_id, started_at)`, and nonce uniqueness. Give the storage service a health endpoint, bounded request timeouts, structured errors, and backups. Import the D1 export, then compare counts and representative API responses between D1 and the new store.
 
-Run the existing local heartbeat matrix against both adapters: valid heartbeat, replay, bad signature, stale timestamp, malformed payload, failed checks, outage opening, recovery, concurrent duplicate delivery, open gap closure, notification retry, and history windows that begin during an existing outage.
+Run the existing local heartbeat matrix against both adapters: valid heartbeat, replay, bad signature, stale timestamp, malformed payload, failed checks, outage opening, recovery, concurrent duplicate delivery, open gap closure, and history windows that begin during an existing outage.
 
 ### Phase 4: dual-write and cut over
 
@@ -121,7 +118,7 @@ After the cutover window, remove the `DB: D1Database` binding from `worker/src/t
 
 ## Acceptance criteria
 
-The D1 removal is complete when both probes can send heartbeats for at least one full retention cycle; current status, stale/down transitions, outage recovery, notification retry, latency charts, speed-test charts, and all history endpoints return the same contract; replayed heartbeats remain rejected; concurrent delivery cannot duplicate state; cleanup runs after a missed schedule; and a tested backup/restore procedure exists for the replacement store.
+The D1 removal is complete when both probes can send heartbeats for at least one full retention cycle; current status, stale/down transitions, outage recovery, latency charts, speed-test charts, and all history endpoints return the same contract; replayed heartbeats remain rejected; concurrent delivery cannot duplicate state; cleanup runs after a missed schedule; and a tested backup/restore procedure exists for the replacement store.
 
 The implementation should start with the repository interface and the heartbeat transaction. Those two changes address the largest correctness risks and make the eventual D1 removal a storage migration rather than a simultaneous rewrite of the monitoring behavior.
 

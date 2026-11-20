@@ -21,7 +21,7 @@ export async function handleStatus(request: Request, env: Env): Promise<Response
       return { isp_id: ispId, label: getIspLabel(env, ispId), is_up: false, display_state: "unknown", health_state: "unknown", last_seen_at: null, heartbeat_age_seconds: null, heartbeat_stale: true, missed_beats: null, checks: { internet_ok: null, dns_ok: null, https_ok: null, https_latency_ms: null }, state_error: true };
     }
   }));
-  return jsonResponse({ generated_at: new Date().toISOString(), status_page_url: env.STATUS_PAGE_URL ?? "", isps });
+  return jsonResponse({ generated_at: new Date().toISOString(), isps });
 }
 
 export function parseStatusIsp(value: string | null): IspId | null {

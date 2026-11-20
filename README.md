@@ -13,7 +13,7 @@ ISP 1 -> dedicated probe -> Cloudflare Worker presence state
 ISP 2 -> dedicated probe -> Cloudflare Worker presence state
       -> local history app and database
 
-Worker -> notifications and live status page
+Worker -> live status page
 Local app -> history, charts, and derived outage records
 ```
 
@@ -26,7 +26,7 @@ ISP-specific outage detection is required.
 
 ```text
 worker/                    # optional reference receiver implementation
-docs/                      # API, notifications, and deployment notes
+docs/                      # API and deployment notes
 isp1/
   README.md
   speedtest-tracker/
@@ -69,7 +69,7 @@ docker compose --env-file .env up -d
 ## services
 
 The Worker is the remote heartbeat receiver. A Durable Object is used per ISP
-for liveness and notification transitions. The local history service uses
+for liveness and outage transitions. The local history service uses
 SQLite and is the source of truth for charts and detailed history.
 
 ## Security

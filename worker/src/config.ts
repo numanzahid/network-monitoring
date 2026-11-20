@@ -10,7 +10,7 @@ export function getProbeIntervalSeconds(env: Env): number {
 }
 
 export function getMissedBeatThreshold(env: Env): number {
-  return Math.max(1, parseIntEnv(env.NOTIFY_AFTER_MISSED_BEATS, 1));
+  return Math.max(1, parseIntEnv(env.DOWN_AFTER_MISSED_BEATS, 1));
 }
 
 export function getHeartbeatMaxAgeSeconds(env: Env): number {
@@ -27,10 +27,6 @@ export function getRemoteSpeedtestHistoryDays(env: Env): number {
 
 export function getRemoteOutageHistoryDays(env: Env): number {
   return Math.min(365, Math.max(1, parseIntEnv(env.REMOTE_OUTAGE_HISTORY_DAYS, 7)));
-}
-
-export function isNotifyEnabled(env: Env): boolean {
-  return (env.NOTIFY_ENABLED ?? "false").toLowerCase() === "true";
 }
 
 export function getIspLabel(env: Env, ispId: IspId): string {

@@ -3,9 +3,7 @@ export type IspId = "isp1" | "isp2";
 export interface Env {
   ISP_STATE: DurableObjectNamespace;
   ASSETS: Fetcher;
-  NOTIFY_ENABLED: string;
-  NOTIFIER_CHANNELS: string;
-  NOTIFY_AFTER_MISSED_BEATS: string;
+  DOWN_AFTER_MISSED_BEATS: string;
   PROBE_INTERVAL_SECONDS: string;
   HEARTBEAT_MAX_AGE_SECONDS: string;
   REMOTE_HISTORY_HOURS: string;
@@ -13,17 +11,8 @@ export interface Env {
   REMOTE_OUTAGE_HISTORY_DAYS: string;
   ISP1_LABEL: string;
   ISP2_LABEL: string;
-  STATUS_PAGE_URL: string;
-  NTFY_SERVER: string;
-  NTFY_TOPIC?: string;
-  NTFY_AUTH_TOKEN?: string;
-  NTFY_PRIORITY_DOWN: string;
-  NTFY_PRIORITY_UP: string;
   PROBE_SECRET_ISP1: string;
   PROBE_SECRET_ISP2: string;
-  TELEGRAM_BOT_TOKEN?: string;
-  TELEGRAM_CHAT_ID?: string;
-  DISCORD_WEBHOOK_URL?: string;
 }
 
 export interface HeartbeatMetadata {
@@ -56,17 +45,6 @@ export interface CompactHeartbeat {
   s?: HeartbeatSpeedtest | null;
 }
 
-export interface PresenceNotification {
-  id: string;
-  type: "down" | "up";
-  started_at: string;
-  ended_at?: string;
-  reason?: string;
-  missed_beats?: number;
-  last_beat_recv_at?: string | null;
-  latency_ms?: number | null;
-}
-
 export interface HistorySyncState {
   request_id: string;
   heartbeat_since: string;
@@ -91,11 +69,5 @@ export interface PresenceState {
   health_state: "unknown" | "healthy" | "degraded";
   missed_beats: number;
   outage_started_at: string | null;
-  transition_number: number;
-  pending_notifications: PresenceNotification[];
-  pending_notification?: PresenceNotification | null;
-  last_notification_id: string | null;
-  last_notification_error: string | null;
-  notification_retry_at: string | null;
   history_sync: HistorySyncState | null;
 }
