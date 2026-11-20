@@ -53,9 +53,15 @@ heartbeat and sends it to the configured receiver at the configured interval.
 
 Set `CHECK_PROVIDER=google` or `CHECK_PROVIDER=cloudflare` in each probe
 environment file. The selected profile controls the DNS hostname, HTTPS latency,
-and internet reachability targets. Both profiles trace to `9.9.9.9` to avoid
+and internet reachability targets. Both profiles trace to `8.8.4.4` to avoid
 special router routes for Google and Cloudflare DNS IPs. The default is Google;
 the individual target variables can override a profile when needed.
+
+Each beat also measures three ICMP echo replies per destination in parallel:
+Google (`8.8.4.4`), Cloudflare (`1.0.0.1`), and Quad9 (`9.9.9.9`). Each ISP's
+graph shows one average RTT line per destination; tooltips include missing
+replies. A destination with no replies creates a gap, never a zero-latency
+sample. These new samples are separate from historical HTTPS response times.
 
 The receiver should validate the ISP identity, timestamp, nonce, signature,
 and payload before storing it.

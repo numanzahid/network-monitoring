@@ -1,4 +1,5 @@
 import { getIspLabel, getMissedBeatThreshold, getProbeIntervalSeconds, getRemoteHistoryHours, getRemoteOutageHistoryDays, getRemoteSpeedtestHistoryDays } from "./config";
+import { validPings } from "./auth";
 import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, HistorySyncState, PresenceState } from "./types";
 
 function response(body: unknown, status = 200): Response {
@@ -48,6 +49,7 @@ interface RemoteBeatRow {
   received_at: string;
   flags: number;
   latency_ms: number | null;
+  ping_json: string | null;
 }
 
 interface RemoteSpeedtestRow {
@@ -95,6 +97,11 @@ export class IspState {
         UNIQUE (boot_id, seq)
       );
       CREATE INDEX IF NOT EXISTS idx_heartbeat_history_probe ON heartbeat_history (probe_ts);
+      CREATE TABLE IF NOT EXISTS ping_history (
+        boot_id TEXT NOT NULL, seq INTEGER NOT NULL, probe_ts TEXT NOT NULL,
+        payload_json TEXT NOT NULL, PRIMARY KEY (boot_id, seq)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ping_history_probe ON ping_history (probe_ts);
       CREATE TABLE IF NOT EXISTS remote_speedtests (
         result_id INTEGER PRIMARY KEY,
         recorded_at TEXT NOT NULL,
@@ -215,6 +222,7 @@ export class IspState {
       const beat = value as Record<string, unknown>;
       if (typeof beat.boot_id !== "string" || !Number.isSafeInteger(beat.seq) || (beat.seq as number) < 1 || typeof beat.probe_ts !== "string" || !Number.isInteger(beat.flags) || !Number.isFinite(beat.latency_ms as number) && beat.latency_ms !== null) continue;
       this.state.storage.sql.exec("INSERT OR IGNORE INTO heartbeat_history (boot_id, seq, probe_ts, received_at, flags, latency_ms) VALUES (?, ?, ?, ?, ?, ?)", beat.boot_id, beat.seq, beat.probe_ts, receivedAt, beat.flags, beat.latency_ms);
+      if (validPings(beat.p)) this.state.storage.sql.exec("INSERT OR IGNORE INTO ping_history (boot_id, seq, probe_ts, payload_json) VALUES (?, ?, ?, ?)", beat.boot_id, beat.seq, beat.probe_ts, JSON.stringify(beat.p));
     }
     for (const value of speedtests) {
       if (!value || typeof value !== "object") continue;
@@ -243,6 +251,7 @@ export class IspState {
   }
 
   private recordHeartbeat(payload: CompactHeartbeat, receivedAt: string): void {
+    if (payload.p) this.state.storage.sql.exec("INSERT OR IGNORE INTO ping_history (boot_id, seq, probe_ts, payload_json) VALUES (?, ?, ?, ?)", payload.boot_id, payload.seq, payload.ts, JSON.stringify(payload.p));
     this.state.storage.sql.exec(
       "INSERT OR IGNORE INTO heartbeat_history (boot_id, seq, probe_ts, received_at, flags, latency_ms) VALUES (?, ?, ?, ?, ?, ?)",
       payload.boot_id,
@@ -269,6 +278,7 @@ export class IspState {
     const speedtestCutoff = new Date(Date.now() - getRemoteSpeedtestHistoryDays(this.env) * 86400 * 1000).toISOString();
     const outageCutoff = new Date(Date.now() - getRemoteOutageHistoryDays(this.env) * 86400 * 1000).toISOString();
     this.state.storage.sql.exec("DELETE FROM heartbeat_history WHERE probe_ts < ?", beatCutoff);
+    this.state.storage.sql.exec("DELETE FROM ping_history WHERE probe_ts < ?", beatCutoff);
     this.state.storage.sql.exec("DELETE FROM remote_speedtests WHERE datetime(recorded_at) < datetime(?)", speedtestCutoff);
     this.state.storage.sql.exec("DELETE FROM remote_outages WHERE started_at < ? AND ended_at IS NOT NULL", outageCutoff);
   }
@@ -279,9 +289,9 @@ export class IspState {
     const hours = Math.min(requestedHours, retentionHours);
     const retentionSince = new Date(Date.now() - retentionHours * 3600 * 1000).toISOString();
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
-    const rows = this.state.storage.sql.exec<RemoteBeatRow>("SELECT probe_ts, received_at, flags, latency_ms FROM heartbeat_history WHERE probe_ts >= ? ORDER BY probe_ts ASC", since).toArray();
+    const rows = this.state.storage.sql.exec<RemoteBeatRow>("SELECT h.probe_ts, h.received_at, h.flags, h.latency_ms, p.payload_json AS ping_json FROM heartbeat_history h LEFT JOIN ping_history p ON p.boot_id = h.boot_id AND p.seq = h.seq WHERE h.probe_ts >= ? ORDER BY h.probe_ts ASC", since).toArray();
     const oldest = this.state.storage.sql.exec<{ oldest: string | null }>("SELECT MIN(probe_ts) AS oldest FROM heartbeat_history WHERE probe_ts >= ?", retentionSince).toArray()[0]?.oldest ?? null;
-    const points = rows.map((row) => ({ recorded_at: row.probe_ts, latency_ms: row.latency_ms }));
+    const points = rows.map((row) => ({ recorded_at: row.probe_ts, latency_ms: row.latency_ms, p: row.ping_json ? JSON.parse(row.ping_json) : null }));
     const gaps = this.heartbeatGaps(rows);
     const ispId = this.ispId(url);
     const availableHours = oldest ? Math.min(retentionHours, Math.max(1, Math.ceil((Date.now() - Date.parse(oldest)) / 3600000))) : 0;

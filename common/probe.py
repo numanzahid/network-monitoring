@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import ipaddress
 import math
+import re
 import json
 import os
 import shutil
@@ -19,6 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -89,13 +91,13 @@ def get_check_targets() -> dict[str, str]:
             "DNS_HOST": "www.cloudflare.com",
             "HTTPS_CHECK_URL": "https://cloudflare.com/cdn-cgi/trace",
             "INTERNET_CHECK_URL": "https://cloudflare.com/cdn-cgi/trace",
-            "TRACEROUTE_TARGET": "9.9.9.9",
+            "TRACEROUTE_TARGET": "8.8.4.4",
         },
         "google": {
             "DNS_HOST": "www.google.com",
             "HTTPS_CHECK_URL": "https://www.google.com/generate_204",
             "INTERNET_CHECK_URL": "https://www.google.com/generate_204",
-            "TRACEROUTE_TARGET": "9.9.9.9",
+            "TRACEROUTE_TARGET": "8.8.4.4",
         },
     }
     profile = profiles.get(provider)
@@ -145,6 +147,32 @@ def run_traceroute(target: str, max_hops: int, timeout: float) -> list[str] | No
         return None
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     return lines or None
+
+
+PING_TARGETS = {"google": "8.8.4.4", "cloudflare": "1.0.0.1", "quad9": "9.9.9.9"}
+
+
+def measure_ping(target: str) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            ["ping", "-n", "-c", "3", "-i", "0.2", "-W", "2", "-w", "7", target],
+            capture_output=True, text=True, timeout=9, check=False, env={**os.environ, "LC_ALL": "C"},
+        )
+        counts = re.search(r"(\d+) packets transmitted, (\d+) (?:packets )?received", result.stdout)
+        average = re.search(r"(?:rtt|round-trip).*?=\s*[\d.]+/([\d.]+)/", result.stdout)
+        if counts:
+            sent, received = map(int, counts.groups())
+            return {"rtt_ms": float(average[1]) if average and received else None, "sent": sent, "received": received}
+    except (OSError, subprocess.SubprocessError):
+        pass
+    # A tool failure is unknown, not measured packet loss.
+    return {"rtt_ms": None, "sent": 0, "received": 0}
+
+
+def measure_pings() -> dict[str, Any]:
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(measure_ping, PING_TARGETS.values()))
+    return dict(zip(PING_TARGETS, results))
 
 
 def get_traceroute(target: str, max_hops: int, interval: int, timeout: float) -> list[str] | None:
@@ -345,13 +373,14 @@ def run_once(state: ProbeState) -> None:
     state_dir = Path(os.environ.get("STATE_DIR", "/state"))
     queue_dir = Path(os.environ.get("LOCAL_SPOOL_DIR", str(state_dir / "local-queue")))
     flags, latency, metadata, speedtest = build_measurements(timeout)
+    pings = measure_pings()
     timestamp = utc_now()
     seq = state.next_seq()
     metadata_json = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
     metadata_hash = hashlib.sha256(metadata_json.encode()).hexdigest()
     metadata_changed = metadata_hash != state.data.get("metadata_hash") or time.time() - float(state.data.get("metadata_sent_at", 0)) >= env_int("METADATA_KEEPALIVE_SECONDS", 21600)
     speedtest_changed = speedtest is not None and speedtest.get("result_id") != state.data.get("speedtest_id")
-    payload: dict[str, Any] = {"v": 2, "isp_id": isp_id, "boot_id": state.data["boot_id"], "seq": seq, "ts": timestamp, "f": flags, "l": latency}
+    payload: dict[str, Any] = {"v": 2, "isp_id": isp_id, "boot_id": state.data["boot_id"], "seq": seq, "ts": timestamp, "f": flags, "l": latency, "p": pings}
     if metadata_changed:
         payload["m"] = metadata
         state.data["metadata_hash"] = metadata_hash

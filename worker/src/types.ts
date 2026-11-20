@@ -33,6 +33,8 @@ export interface HeartbeatSpeedtest {
   server_name: string | null;
 }
 
+export type PingMeasurements = Record<"google" | "cloudflare" | "quad9", { rtt_ms: number | null; sent: number; received: number }>;
+
 export interface CompactHeartbeat {
   v: 2;
   isp_id: IspId;
@@ -41,6 +43,7 @@ export interface CompactHeartbeat {
   ts: string;
   f: number;
   l: number | null;
+  p?: PingMeasurements;
   m?: HeartbeatMetadata | null;
   s?: HeartbeatSpeedtest | null;
 }

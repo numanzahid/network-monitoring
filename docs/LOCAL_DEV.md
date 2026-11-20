@@ -36,7 +36,7 @@ Probe target selection is controlled by `CHECK_PROVIDER=google` or
 `CHECK_PROVIDER=cloudflare`. Google resolves `www.google.com` and uses Google's
 HTTPS generate-204 endpoint; Cloudflare resolves `www.cloudflare.com` and uses
 Cloudflare's hostname-based HTTPS trace endpoint. Both profiles trace to
-`9.9.9.9`, because this setup has special router routes for `8.8.8.8` and
+`8.8.4.4`, because this setup has special router routes for `8.8.8.8` and
 `1.1.1.1`. The four target variables remain available as optional overrides.
 `DNS_HOST` must be a hostname; numeric addresses report a failed DNS check.
 This checks the container's configured resolver, not a dedicated ISP DNS server.

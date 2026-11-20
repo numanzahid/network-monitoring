@@ -208,7 +208,7 @@ function createStatusCard(isp) {
       <dd data-field="provider"></dd>
       <div class="status-meta-row">
         <div>
-          <dt>Latency</dt>
+          <dt>HTTPS response time</dt>
           <dd data-field="https-latency"></dd>
         </div>
         <div>

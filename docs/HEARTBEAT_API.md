@@ -38,6 +38,14 @@ Probes send compact, independently authenticated heartbeats to the Worker.
 
 `f` is a bit field: Internet `1`, DNS `2`, and HTTPS `4`. `l` is HTTPS latency in milliseconds. `m` and `s` are sent when changed and periodically as keepalives.
 
+`p` contains ICMP ping samples for `google` (`8.8.4.4`), `cloudflare`
+(`1.0.0.1`), and `quad9` (`9.9.9.9`). Each sample has `rtt_ms` (average or
+null), `sent`, and `received`. Three packets per target are measured in parallel
+each beat. `sent: 0` means measurement unavailable; `sent: 3, received: 0`
+means complete packet loss. The existing `l` field remains HTTPS response time.
+Local and remote latency history points include `p`; old HTTPS samples have
+no ping measurements and are never drawn as ping RTT. Backfill includes `p`.
+
 ## authentication
 
 Use the ISP-specific secret in `Authorization`:

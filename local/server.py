@@ -71,6 +71,12 @@ class Store:
               UNIQUE (isp_id, boot_id, seq)
             );
             CREATE INDEX IF NOT EXISTS idx_beats_isp_time ON beats (isp_id, probe_ts);
+            CREATE TABLE IF NOT EXISTS ping_history (
+              isp_id TEXT NOT NULL, boot_id TEXT NOT NULL, seq INTEGER NOT NULL,
+              probe_ts TEXT NOT NULL, payload_json TEXT NOT NULL,
+              PRIMARY KEY (isp_id, boot_id, seq)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ping_isp_time ON ping_history (isp_id, probe_ts);
             CREATE TABLE IF NOT EXISTS metadata_events (
               id INTEGER PRIMARY KEY,
               isp_id TEXT NOT NULL,
@@ -154,6 +160,11 @@ class Store:
                 (isp, boot_id, seq, probe_ts, received_at, flags, latency),
             )
             metadata = payload.get("m")
+            if isinstance(payload.get("p"), dict):
+                self.connection.execute(
+                    "INSERT OR IGNORE INTO ping_history VALUES (?, ?, ?, ?, ?)",
+                    (isp, boot_id, seq, probe_ts, json.dumps(payload["p"], separators=(",", ":"))),
+                )
             if metadata is not None:
                 self.connection.execute(
                     "INSERT INTO metadata_events (isp_id, recorded_at, metadata_json) VALUES (?, ?, ?)",
@@ -226,22 +237,32 @@ class Store:
         since = datetime.now(timezone.utc) - timedelta(seconds=period_seconds)
         since_iso = since.isoformat().replace("+00:00", "Z")
         with self.lock:
-            rows = self.connection.execute("SELECT probe_ts, latency_ms FROM beats WHERE isp_id = ? AND probe_ts >= ? AND latency_ms IS NOT NULL ORDER BY probe_ts ASC", (isp, since_iso)).fetchall()
+            rows = self.connection.execute("SELECT b.probe_ts, b.latency_ms, p.payload_json AS ping_json FROM beats b LEFT JOIN ping_history p ON p.isp_id = b.isp_id AND p.boot_id = b.boot_id AND p.seq = b.seq WHERE b.isp_id = ? AND b.probe_ts >= ? ORDER BY b.probe_ts ASC", (isp, since_iso)).fetchall()
             gaps = self.connection.execute("SELECT * FROM heartbeat_gaps WHERE isp_id = ? AND started_at <= ? AND ended_at >= ? AND duration_seconds > ? ORDER BY started_at DESC", (isp, iso_now(), since_iso, INTERVAL_SECONDS * (MISSING_BEAT_THRESHOLD - 1) + GAP_GRACE_SECONDS)).fetchall()
             oldest = self.connection.execute("SELECT MIN(probe_ts) AS oldest FROM beats WHERE isp_id = ? AND latency_ms IS NOT NULL", (isp,)).fetchone()["oldest"]
         gap_rows = [{"started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"]} for row in gaps]
         available_hours = self.available_hours(oldest)
         if period_seconds > 24 * 3600:
-            buckets: dict[str, list[int]] = {}
+            buckets: dict[str, list[sqlite3.Row]] = {}
             for row in rows:
                 parsed = parse_iso(row["probe_ts"])
                 if not parsed:
                     continue
                 bucket = parsed.replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
-                buckets.setdefault(bucket, []).append(row["latency_ms"])
-            points = [{"recorded_at": key, "min_latency_ms": min(values), "max_latency_ms": max(values), "sample_count": len(values)} for key, values in sorted(buckets.items())]
+                buckets.setdefault(bucket, []).append(row)
+            points = []
+            for key, values in sorted(buckets.items()):
+                pings = [json.loads(row["ping_json"]) for row in values if row["ping_json"]]
+                summary = {}
+                for name in ("google", "cloudflare", "quad9"):
+                    samples = [p[name] for p in pings if name in p]
+                    sent = sum(p["sent"] for p in samples)
+                    received = sum(p["received"] for p in samples)
+                    summary[name] = {"sent": sent, "received": received, "rtt_ms": round(sum((p["rtt_ms"] or 0) * p["received"] for p in samples) / received, 3) if received else None}
+                https = [row["latency_ms"] for row in values if row["latency_ms"] is not None]
+                points.append({"recorded_at": key, "min_latency_ms": min(https) if https else None, "max_latency_ms": max(https) if https else None, "sample_count": len(values), "p": summary if pings else None})
             return {"isp_id": isp, "label": isp.upper(), "days": days, "hours": hours, "available_hours": available_hours, "granularity": "hour", "points": points, "gaps": gap_rows, "history_available": True}
-        return {"isp_id": isp, "label": isp.upper(), "days": days, "hours": hours, "available_hours": available_hours, "granularity": "sample", "points": [{"recorded_at": row["probe_ts"], "latency_ms": row["latency_ms"]} for row in rows], "gaps": gap_rows, "history_available": True}
+        return {"isp_id": isp, "label": isp.upper(), "days": days, "hours": hours, "available_hours": available_hours, "granularity": "sample", "points": [{"recorded_at": row["probe_ts"], "latency_ms": row["latency_ms"], "p": json.loads(row["ping_json"]) if row["ping_json"] else None} for row in rows], "gaps": gap_rows, "history_available": True}
 
     @staticmethod
     def available_hours(oldest: str | None) -> int:
@@ -327,7 +348,7 @@ class Store:
         outage_cursor = None if cursors.get("outage", 0) is None else max(0, int(cursors.get("outage", 0)))
         with self.lock:
             heartbeat_rows = [] if heartbeat_cursor is None else self.connection.execute(
-                "SELECT id, boot_id, seq, probe_ts, flags, latency_ms FROM beats WHERE isp_id = ? AND id > ? AND probe_ts >= ? ORDER BY id ASC LIMIT ?",
+                "SELECT b.id, b.boot_id, b.seq, b.probe_ts, b.flags, b.latency_ms, p.payload_json AS ping_json FROM beats b LEFT JOIN ping_history p ON p.isp_id = b.isp_id AND p.boot_id = b.boot_id AND p.seq = b.seq WHERE b.isp_id = ? AND b.id > ? AND b.probe_ts >= ? ORDER BY b.id ASC LIMIT ?",
                 (isp, heartbeat_cursor, heartbeat_since, limit),
             ).fetchall()
             speedtest_rows = [] if speedtest_cursor is None else self.connection.execute(
@@ -349,7 +370,7 @@ class Store:
         return {
             "ok": True,
             "isp_id": isp,
-            "heartbeats": [{"boot_id": row["boot_id"], "seq": row["seq"], "probe_ts": row["probe_ts"], "flags": row["flags"], "latency_ms": row["latency_ms"]} for row in heartbeat_rows],
+            "heartbeats": [{"boot_id": row["boot_id"], "seq": row["seq"], "probe_ts": row["probe_ts"], "flags": row["flags"], "latency_ms": row["latency_ms"], "p": json.loads(row["ping_json"]) if row["ping_json"] else None} for row in heartbeat_rows],
             "speedtests": [json.loads(row["payload_json"]) for row in speedtest_rows if complete_speedtest(json.loads(row["payload_json"]))],
             "outages": [{"started_at": row["started_at"], "ended_at": row["ended_at"], "duration_seconds": row["duration_seconds"], "reason": row["reason"]} for row in outage_rows],
             "next_cursors": next_cursors,

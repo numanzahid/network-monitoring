@@ -246,7 +246,9 @@ function buildChartOptions(_yAxisLabel, valueUnit, yAxisMax, timeBounds) {
               yAxisMax !== undefined && typeof value === "number" && value > yAxisMax
                 ? " (above scale)"
                 : "";
-            return `${label}: ${formatted} ${valueUnit}${clipped}`;
+            const sample = context.raw?.ping;
+            const loss = sample?.sent ? `; ${sample.sent - sample.received}/${sample.sent} replies missing` : "";
+            return `${label}: ${formatted} ${valueUnit}${clipped}${loss}`;
           },
           filter(item) {
             return item.parsed.y !== null && item.parsed.y !== undefined;
@@ -340,59 +342,37 @@ function timeScaleOptions(timeBounds) {
 function latencyTitle(history) {
   const gapCount = history.gaps?.length ?? 0;
   const gapNote = gapCount ? ` - ${gapCount} silent period${gapCount === 1 ? "" : "s"}` : "";
-  return `${history.label} HTTPS latency${gapNote}`;
+  return `${history.label} ping RTT${gapNote}`;
 }
 
 function buildLatencyChartData(history) {
   const rawPoints = history.points ?? [];
   const gaps = history.gaps ?? [];
-  const points = filterPointsOutsideGaps(rawPoints, gaps);
+  const points = filterPointsOutsideGaps(rawPoints, gaps).filter((point) => point.p);
 
   if (!points.length) {
     return null;
   }
 
-  if (history.granularity === "hour") {
-    return {
-      datasets: [
-        {
-          label: "Low",
-          data: buildSeries(points, gaps, "min_latency_ms"),
-          borderColor: "#22c55e",
-          backgroundColor: "rgba(34, 197, 94, 0.08)",
-          tension: 0,
-          spanGaps: false,
-          clip: true,
-          ...linePointStyle("#22c55e"),
-        },
-        {
-          label: "High",
-          data: buildSeries(points, gaps, "max_latency_ms"),
-          borderColor: "#ef4444",
-          backgroundColor: "rgba(239, 68, 68, 0.12)",
-          tension: 0,
-          spanGaps: false,
-          clip: true,
-          ...linePointStyle("#ef4444"),
-        },
-      ],
-    };
-  }
-
   return {
     datasets: [
-      {
-        label: "Latency",
-        data: buildSeries(points, gaps, "latency_ms"),
-        borderColor: "#38bdf8",
-        backgroundColor: "rgba(56, 189, 248, 0.15)",
+      ["google", "Google · 8.8.4.4", "#38bdf8"],
+      ["cloudflare", "Cloudflare · 1.0.0.1", "#f59e0b"],
+      ["quad9", "Quad9 · 9.9.9.9", "#a78bfa"],
+    ].map(([name, label, color]) => {
+      const samples = points.map((point) => ({...point, rtt: point.p[name]?.rtt_ms ?? null}));
+      const lookup = new Map(samples.map((point) => [toTimestamp(point.recorded_at), point.p[name]]));
+      return {
+        label,
+        data: buildSeries(samples, gaps, "rtt").map((point) => ({...point, ping: lookup.get(point.x)})),
+        borderColor: color,
         fill: false,
         tension: 0,
         spanGaps: false,
         clip: true,
-        ...linePointStyle("#38bdf8"),
-      },
-    ],
+        ...linePointStyle(color),
+      };
+    }),
   };
 }
 
@@ -546,7 +526,7 @@ function renderLatencyCharts(container, histories, { mount = false } = {}) {
       container.appendChild(card);
 
       if (!data) {
-        showEmptyChart(card, "No local history is available for this period.");
+        showEmptyChart(card, "No ping samples yet for this period.");
         continue;
       }
 

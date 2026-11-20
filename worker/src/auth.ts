@@ -1,5 +1,5 @@
 import { getHeartbeatMaxAgeSeconds, getProbeSecret, isValidIspId } from "./config";
-import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest } from "./types";
+import type { CompactHeartbeat, Env, HeartbeatMetadata, HeartbeatSpeedtest, PingMeasurements } from "./types";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_BOOT_ID_LENGTH = 80;
@@ -43,6 +43,19 @@ function validNullableNumber(value: unknown, min: number, max: number): value is
   return value === null || (typeof value === "number" && Number.isFinite(value) && value >= min && value <= max);
 }
 
+export function validPings(value: unknown): value is PingMeasurements {
+  if (!value || typeof value !== "object" || Object.keys(value).length !== 3) return false;
+  return ["google", "cloudflare", "quad9"].every((key) => {
+    const item = (value as Record<string, unknown>)[key];
+    if (!item || typeof item !== "object") return false;
+    const p = item as Record<string, unknown>;
+    return Number.isInteger(p.sent) && (p.sent as number) >= 0 && (p.sent as number) <= 3
+      && Number.isInteger(p.received) && (p.received as number) >= 0 && (p.received as number) <= (p.sent as number)
+      && validNullableNumber(p.rtt_ms, 0, 120000)
+      && ((p.received as number) > 0 ? p.rtt_ms !== null : p.rtt_ms === null);
+  });
+}
+
 function validMetadata(value: unknown): value is HeartbeatMetadata {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
@@ -82,6 +95,7 @@ function validateCompact(value: unknown, env: Env): { ok: true; payload: Compact
   const flags = item.f;
   if (!Number.isInteger(flags) || (flags as number) < 0 || (flags as number) > 7) return { ok: false, error: "Invalid flags" };
   if (!validNullableNumber(item.l, 0, 120000)) return { ok: false, error: "Invalid latency" };
+  if (item.p !== undefined && !validPings(item.p)) return { ok: false, error: "Invalid ping measurements" };
   if (item.m !== undefined && item.m !== null && !validMetadata(item.m)) return { ok: false, error: "Invalid metadata" };
   if (item.s !== undefined && item.s !== null && !validSpeedtest(item.s)) return { ok: false, error: "Invalid speedtest" };
   return { ok: true, payload: item as unknown as CompactHeartbeat };

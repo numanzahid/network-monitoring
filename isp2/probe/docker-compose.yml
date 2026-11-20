@@ -8,7 +8,7 @@ services:
       - "sh"
       - "-c"
       - >-
-        timeout 30s sh -c 'apt-get update -qq && apt-get install -y -qq traceroute' || true;
+        timeout 30s sh -c 'apt-get update -qq && apt-get install -y -qq traceroute iputils-ping' || true;
         pip install -q -r /probe/requirements.txt && exec python /probe/probe.py
     networks:
       default:
